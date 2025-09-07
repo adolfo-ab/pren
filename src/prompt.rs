@@ -1,102 +1,190 @@
+use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+pub enum TemplatePart {
+    Literal(String),
+    Placeholder(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct ParsedTemplate {
+    pub parts: Vec<TemplatePart>,
+}
+
 pub struct PromptBase {
     pub name: String,
-    pub content: String,
     pub tags: Vec<String>
 }
 
 pub enum Prompt {
-    Simple(PromptBase),
-    Template(PromptBase)
+    Simple {
+        base: PromptBase,
+        content: String,
+    },
+    Template {
+        base: PromptBase,
+        template: ParsedTemplate,
+    }
 }
 
 #[derive(Debug, PartialEq)]
-enum PlaceholderError {
-    Invalid(String),
+pub enum PromptError {
+    InvalidPlaceholder(String),
+    MissingValue(String),
 }
 
 pub fn new_simple(name: String, content: String, tags: Vec<String>) -> Prompt {
-    Prompt::Simple(
-        PromptBase{name, content, tags}
-    )
+    Prompt::Simple {
+        base: PromptBase { name, tags },
+        content,
+    }
 }
 
-pub fn new_template(name: String, content: String, tags: Vec<String>) -> Prompt {
-    Prompt::Template(
-        PromptBase{name, content, tags}
-    )
+pub fn new_template(name: String, content: String, tags: Vec<String>) -> Result<Prompt, PromptError> {
+    let template = parse_template(&content)?;
+    Ok(Prompt::Template {
+        base: PromptBase { name, tags },
+        template,
+    })
 }
 
 impl Prompt {
-    fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         match self {
-            Prompt::Simple(base) => &base.name,
-            Prompt::Template(base) => &base.name,
+            Prompt::Simple { base, .. } => &base.name,
+            Prompt::Template { base, .. } => &base.name,
         }
     }
 
-    fn content(&self) -> &str {
+    pub fn tags(&self) -> &[String] {
         match self {
-            Prompt::Simple(base) => &base.content,
-            Prompt::Template(base) => &base.content,
+            Prompt::Simple { base, .. } => &base.tags,
+            Prompt::Template { base, .. } => &base.tags,
         }
     }
 
-    fn tags(&self) -> &[String] {
+    pub fn render(&self, values: &HashMap<String, String>) -> Result<String, PromptError> {
         match self {
-            Prompt::Simple(base) => &base.tags,
-            Prompt::Template(base) => &base.tags,
+            Prompt::Simple { content, .. } => Ok(content.clone()),
+            Prompt::Template { template, .. } => template.render(values),
         }
     }
 
+    pub fn placeholders(&self) -> Vec<String> {
+        match self {
+            Prompt::Simple { .. } => vec![],
+            Prompt::Template { template, .. } => template.placeholders(),
+        }
+    }
 }
 
-fn extract_placeholders(template: &str) -> Result<Vec<String>, PlaceholderError> {
-    let mut placeholders = vec![];
+impl ParsedTemplate {
+    pub fn render(&self, values: &HashMap<String, String>) -> Result<String, PromptError> {
+        let mut result = String::new();
+
+        for part in &self.parts {
+            match part {
+                TemplatePart::Literal(text) => result.push_str(text),
+                TemplatePart::Placeholder(name) => {
+                    match values.get(name) {
+                        Some(value) => result.push_str(value),
+                        None => return Err(PromptError::MissingValue(name.clone())),
+                    }
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub fn placeholders(&self) -> Vec<String> {
+        self.parts
+            .iter()
+            .filter_map(|part| match part {
+                TemplatePart::Placeholder(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+fn parse_template(template: &str) -> Result<ParsedTemplate, PromptError> {
+    let mut parts = Vec::new();
     let bytes = template.as_bytes();
+    let mut current_literal = String::new();
 
     let mut i = 0;
     while i < bytes.len() {
-        // Handle {{{{ -> skip 4 bytes
+        // Handle {{{{ -> escaped braces, treat as literal
         if i + 3 < bytes.len() && bytes[i..i+4] == [b'{', b'{', b'{', b'{'] {
             let mut j = i + 4;
+            current_literal.push_str("{{");
+
             while j + 3 < bytes.len() {
                 if bytes[j..j+4] == [b'}', b'}', b'}', b'}'] {
-                    i = j + 4;  // skip to after }}}}
+                    current_literal.push_str("}}");
+                    i = j + 4;
                     break;
                 }
+                current_literal.push(bytes[j] as char);
                 j += 1;
             }
             if j + 3 >= bytes.len() {
                 // didn't find }}}} — treat rest as literal
-                i = bytes.len();  // jump to end
+                current_literal.push_str(&String::from_utf8_lossy(&bytes[j..]));
+                i = bytes.len();
             }
             continue;
         }
 
         // Handle {{ -> placeholder start
-        if i+1 < bytes.len() && bytes[i..i+2] == [b'{', b'{'] {
+        if i + 1 < bytes.len() && bytes[i..i+2] == [b'{', b'{'] {
             let mut j = i + 2;
             let mut found = false;
-            while j < bytes.len() {
-                // Handle }} -> placeholder end
-                if j+1 < bytes.len() && bytes[j..j+2] == [b'}', b'}']{
-                    let placeholder = String::from_utf8_lossy(&bytes[i+2..j]).to_string();
-                    if !is_placeholder_valid(&placeholder) {
-                        return Err(PlaceholderError::Invalid(placeholder))
-                    }
-                    placeholders.push(placeholder);
 
-                    i = j+2;
+            while j < bytes.len() {
+                if j + 1 < bytes.len() && bytes[j..j+2] == [b'}', b'}'] {
+                    let placeholder_name = String::from_utf8_lossy(&bytes[i+2..j]).to_string();
+
+                    if !is_placeholder_valid(&placeholder_name) {
+                        return Err(PromptError::InvalidPlaceholder(placeholder_name));
+                    }
+
+                    // Push any accumulated literal text
+                    if !current_literal.is_empty() {
+                        parts.push(TemplatePart::Literal(current_literal.clone()));
+                        current_literal.clear();
+                    }
+
+                    // Push the placeholder
+                    parts.push(TemplatePart::Placeholder(placeholder_name));
+
+                    i = j + 2;
                     found = true;
                     break;
                 }
                 j += 1;
             }
-            if found {continue}
+
+            if !found {
+                // No closing }}, treat as literal
+                current_literal.push_str("{{");
+                i += 2;
+            }
+            continue;
         }
+
+        // Regular character
+        current_literal.push(bytes[i] as char);
         i += 1;
     }
-    Ok(placeholders)
+
+    // Push any remaining literal text
+    if !current_literal.is_empty() {
+        parts.push(TemplatePart::Literal(current_literal));
+    }
+
+    Ok(ParsedTemplate { parts })
 }
 
 fn is_placeholder_valid(name: &str) -> bool {
@@ -122,57 +210,132 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_empty_template() {
-        assert_eq!(extract_placeholders(""), Ok(vec![]));
+    fn test_simple_prompt_render() {
+        let prompt = new_simple("test".to_string(), "Hello world!".to_string(), vec![]);
+        let values = HashMap::new();
+        assert_eq!(prompt.render(&values).unwrap(), "Hello world!");
     }
 
     #[test]
-    fn test_nothing_to_extract() {
-        assert_eq!(extract_placeholders("Hello world!"), Ok(vec![]))
+    fn test_template_creation() {
+        let prompt = new_template(
+            "test".to_string(),
+            "Hello {{name}}, I am {{my_name}}!".to_string(),
+            vec![]
+        ).unwrap();
+
+        assert_eq!(prompt.placeholders(), vec!["name", "my_name"]);
     }
 
     #[test]
-    fn test_extract_one_placeholder() {
-        assert_eq!(extract_placeholders("Hello my name is {{name}}!"), Ok(vec!["name".to_string()]))
+    fn test_template_render() {
+        let prompt = new_template(
+            "test".to_string(),
+            "Hello {{name}}!".to_string(),
+            vec![]
+        ).unwrap();
+
+        let mut values = HashMap::new();
+        values.insert("name".to_string(), "Alice".to_string());
+
+        assert_eq!(prompt.render(&values).unwrap(), "Hello Alice!");
     }
 
     #[test]
-    fn test_extract_one_placeholder_with_spaces() {
-        assert_eq!(extract_placeholders("Hello my name is {{ my _ name }}!"), Err(PlaceholderError::Invalid(" my _ name ".to_string())))
+    fn test_template_missing_value() {
+        let prompt = new_template(
+            "test".to_string(),
+            "Hello {{name}}!".to_string(),
+            vec![]
+        ).unwrap();
+
+        let values = HashMap::new();
+
+        match prompt.render(&values) {
+            Err(PromptError::MissingValue(name)) => assert_eq!(name, "name"),
+            _ => panic!("Expected MissingValue error"),
+        }
     }
 
     #[test]
-    fn test_extract_n_placeholders() {
-        assert_eq!(extract_placeholders("You are a write with the following personality {{personality_type}}, write an essay about {{essay-topic01}}, in the following format {{prompt:format}}."), Ok(vec!["personality_type".to_string(), "essay-topic01".to_string(), "prompt:format".to_string()]))
+    fn test_complex_template() {
+        let prompt = new_template(
+            "test".to_string(),
+            "You are a {{role}} with {{trait}}. Write about {{topic}}.".to_string(),
+            vec![]
+        ).unwrap();
+
+        let mut values = HashMap::new();
+        values.insert("role".to_string(), "writer".to_string());
+        values.insert("trait".to_string(), "creativity".to_string());
+        values.insert("topic".to_string(), "AI".to_string());
+
+        assert_eq!(
+            prompt.render(&values).unwrap(),
+            "You are a writer with creativity. Write about AI."
+        );
     }
 
     #[test]
-    fn test_escape_opening() {
-        assert_eq!(extract_placeholders("Hello my name is {{{{name}}!"), Ok(vec![]))
+    fn test_escaped_braces() {
+        let prompt = new_template(
+            "test".to_string(),
+            "Use {{{{code}}}} tags around {{content}}.".to_string(),
+            vec![]
+        ).unwrap();
+
+        let mut values = HashMap::new();
+        values.insert("content".to_string(), "hello".to_string());
+
+        assert_eq!(
+            prompt.render(&values).unwrap(),
+            "Use {{code}} tags around hello."
+        );
     }
 
     #[test]
-    fn test_escape_ending() {
-        assert_eq!(extract_placeholders("Hello my name is {{name}}}}!"), Ok(vec!["name".to_string()]))
+    fn test_unfinished_escape() {
+        let prompt = new_template(
+            "test".to_string(),
+            "Use {{{{code tags around content.".to_string(),
+            vec![]
+        ).unwrap();
+
+        let values = HashMap::new();
+
+        assert_eq!(
+            prompt.render(&values).unwrap(),
+            "Use {{code tags around content."
+        );
     }
 
     #[test]
-    fn test_extract_placeholder_with_escape() {
-        assert_eq!(extract_placeholders("Hello my name is {{ {{{{name}}}} }}!"), Err(PlaceholderError::Invalid(" {{{{name".to_string())))
+    fn test_unfinished_placeholder() {
+        let prompt = new_template(
+            "test".to_string(),
+            "Use {{code tags around content.".to_string(),
+            vec![]
+        ).unwrap();
+
+        let values = HashMap::new();
+
+        assert_eq!(
+            prompt.render(&values).unwrap(),
+            "Use {{code tags around content."
+        );
     }
 
     #[test]
-    fn test_placeholder_within_escape() {
-        assert_eq!(extract_placeholders("Hello my name is {{{{ {{name}} }}}}!"),  Ok(vec![]))
-    }
+    fn test_invalid_placeholder() {
+        let result = new_template(
+            "test".to_string(),
+            "Hello {{ invalid name }}!".to_string(),
+            vec![]
+        );
 
-    #[test]
-    fn test_double_placeholder() {
-        assert_eq!(extract_placeholders("Hello my name is {{ bla bla {{name}}!"), Err(PlaceholderError::Invalid(" bla bla {{name".to_string())))
-    }
-
-    #[test]
-    fn test_placeholder_and_escape() {
-        assert_eq!(extract_placeholders("Hello my name is {{name}}! How are you, {{{{your_name}}}}"), Ok(vec!["name".to_string()]))
+        match result {
+            Err(PromptError::InvalidPlaceholder(name)) => assert_eq!(name, " invalid name "),
+            _ => panic!("Expected InvalidPlaceholder error"),
+        }
     }
 }
