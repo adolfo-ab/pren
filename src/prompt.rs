@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::io::Error;
 
 #[derive(Debug, Clone)]
 pub enum TemplatePart {
     Literal(String),
-    Placeholder(String),
+    Argument(String),
+    PromptReference(String),
 }
 
 #[derive(Debug, Clone)]
@@ -29,8 +31,10 @@ pub enum Prompt {
 
 #[derive(Debug, PartialEq)]
 pub enum PromptError {
-    InvalidPlaceholder(String),
+    InvalidArgument(String),
     MissingValue(String),
+    PromptNotFound(String),
+    PromptNotSimple(String),
 }
 
 pub fn new_simple(name: String, content: String, tags: Vec<String>) -> Prompt {
@@ -48,6 +52,10 @@ pub fn new_template(name: String, content: String, tags: Vec<String>) -> Result<
     })
 }
 
+pub trait PromptRegistry {
+    fn get_prompt(&self, name: String) -> Option<&Prompt>;
+}
+
 impl Prompt {
     pub fn name(&self) -> &str {
         match self {
@@ -63,32 +71,46 @@ impl Prompt {
         }
     }
 
-    pub fn render(&self, values: &HashMap<String, String>) -> Result<String, PromptError> {
+    pub fn render<R: PromptRegistry>(&self, values: &HashMap<String, String>, registry: &R) -> Result<String, PromptError> {
         match self {
             Prompt::Simple { content, .. } => Ok(content.clone()),
-            Prompt::Template { template, .. } => template.render(values),
+            Prompt::Template { template, .. } => template.render(values, registry),
         }
     }
 
-    pub fn placeholders(&self) -> Vec<String> {
+    pub fn arguments(&self) -> Vec<String> {
         match self {
             Prompt::Simple { .. } => vec![],
-            Prompt::Template { template, .. } => template.placeholders(),
+            Prompt::Template { template, .. } => template.arguments(),
+        }
+    }
+
+    pub fn prompt_references(&self) -> Vec<String> {
+        match self {
+            Prompt::Simple { .. } => vec![],
+            Prompt::Template { template, .. } => template.prompt_references(),
         }
     }
 }
 
 impl ParsedTemplate {
-    pub fn render(&self, values: &HashMap<String, String>) -> Result<String, PromptError> {
+    pub fn render<R: PromptRegistry>(&self, values: &HashMap<String, String>, registry: &R) -> Result<String, PromptError> {
         let mut result = String::new();
 
         for part in &self.parts {
             match part {
                 TemplatePart::Literal(text) => result.push_str(text),
-                TemplatePart::Placeholder(name) => {
+                TemplatePart::Argument(name) => {
                     match values.get(name) {
                         Some(value) => result.push_str(value),
                         None => return Err(PromptError::MissingValue(name.clone())),
+                    }
+                },
+                TemplatePart::PromptReference(name) => {
+                    match registry.get_prompt(name.to_string()) {
+                        Some(Prompt::Simple {content, ..}) => result.push_str(content),
+                        Some(Prompt::Template { .. }) => return Err(PromptError::PromptNotSimple(name.clone())),
+                        None => return Err(PromptError::PromptNotFound(name.clone()))
                     }
                 }
             }
@@ -97,11 +119,21 @@ impl ParsedTemplate {
         Ok(result)
     }
 
-    pub fn placeholders(&self) -> Vec<String> {
+    pub fn arguments(&self) -> Vec<String> {
         self.parts
             .iter()
             .filter_map(|part| match part {
-                TemplatePart::Placeholder(name) => Some(name.clone()),
+                TemplatePart::Argument(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn prompt_references(&self) -> Vec<String> {
+        self.parts
+            .iter()
+            .filter_map(|part| match part {
+                TemplatePart::PromptReference(name) => Some(name.clone()),
                 _ => None,
             })
             .collect()
@@ -145,9 +177,8 @@ fn parse_template(template: &str) -> Result<ParsedTemplate, PromptError> {
             while j < bytes.len() {
                 if j + 1 < bytes.len() && bytes[j..j+2] == [b'}', b'}'] {
                     let placeholder_name = String::from_utf8_lossy(&bytes[i+2..j]).to_string();
-
                     if !is_placeholder_valid(&placeholder_name) {
-                        return Err(PromptError::InvalidPlaceholder(placeholder_name));
+                        return Err(PromptError::InvalidArgument(placeholder_name));
                     }
 
                     // Push any accumulated literal text
@@ -157,7 +188,12 @@ fn parse_template(template: &str) -> Result<ParsedTemplate, PromptError> {
                     }
 
                     // Push the placeholder
-                    parts.push(TemplatePart::Placeholder(placeholder_name));
+                    if placeholder_name.starts_with("prompt:") {
+                        let prompt_name = placeholder_name.strip_prefix("prompt:").unwrap();
+                        parts.push(TemplatePart::PromptReference(prompt_name.to_string()));
+                    } else {
+                        parts.push(TemplatePart::Argument(placeholder_name));
+                    }
 
                     i = j + 2;
                     found = true;
@@ -220,11 +256,12 @@ mod tests {
     fn test_template_creation() {
         let prompt = new_template(
             "test".to_string(),
-            "Hello {{name}}, I am {{my_name}}!".to_string(),
+            "Hello {{name}}, I am {{my_name}}, this is a prompt: {{prompt:my_prompt}}!".to_string(),
             vec![]
         ).unwrap();
 
-        assert_eq!(prompt.placeholders(), vec!["name", "my_name"]);
+        assert_eq!(prompt.arguments(), vec!["name", "my_name"]);
+        assert_eq!(prompt.prompt_references(), vec!["my_prompt"]);
     }
 
     #[test]
@@ -334,7 +371,7 @@ mod tests {
         );
 
         match result {
-            Err(PromptError::InvalidPlaceholder(name)) => assert_eq!(name, " invalid name "),
+            Err(PromptError::InvalidArgument(name)) => assert_eq!(name, " invalid name "),
             _ => panic!("Expected InvalidPlaceholder error"),
         }
     }
