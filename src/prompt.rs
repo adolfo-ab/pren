@@ -44,27 +44,6 @@ pub struct PromptTemplate {
 }
 
 impl Prompt {
-    pub fn name(&self) -> &str {
-        match self {
-            Prompt::Simple { base } => &base.name,
-            Prompt::Template { base, .. } => &base.name,
-        }
-    }
-
-    pub fn content(&self) -> &str {
-        match self {
-            Prompt::Simple { base } => &base.content,
-            Prompt::Template { base, .. } => &base.content,
-        }
-    }
-
-    pub fn tags(&self) -> &Vec<String> {
-        match self {
-            Prompt::Simple { base } => &base.tags,
-            Prompt::Template { base, .. } => &base.tags,
-        }
-    }
-
     pub fn new_simple(name: String, content: String, tags: Vec<String>) -> Prompt {
         Prompt::Simple {
             base: PromptBase { name, content, tags,},
@@ -86,7 +65,69 @@ impl Prompt {
         }
     }
 
+    pub fn name(&self) -> &str {
+        match self {
+            Prompt::Simple { base } => &base.name,
+            Prompt::Template { base, .. } => &base.name,
+        }
+    }
 
+    pub fn content(&self) -> &str {
+        match self {
+            Prompt::Simple { base } => &base.content,
+            Prompt::Template { base, .. } => &base.content,
+        }
+    }
+
+    pub fn tags(&self) -> &Vec<String> {
+        match self {
+            Prompt::Simple { base } => &base.tags,
+            Prompt::Template { base, .. } => &base.tags,
+        }
+    }
+
+    pub fn template(&self) -> Option<&PromptTemplate> {
+        match self {
+            Prompt::Simple { .. } => None,
+            Prompt::Template { template, .. } => Some(&template),
+        }
+    }
+
+    pub fn arguments(&self) -> Option<Vec<&String>> {
+        match self {
+            Prompt::Simple { .. } => None,
+            Prompt::Template {template, .. } => Some(template.arguments()),
+        }
+    }
+
+    pub fn prompt_references(&self) -> Option<Vec<&String>> {
+        match self {
+            Prompt::Simple { .. } => None,
+            Prompt::Template { template, .. } => Some(template.prompt_references()),
+        }
+    }
+}
+
+impl PromptTemplate {
+    pub fn arguments(&self) -> Vec<&String> {
+        self.parts.iter().filter_map(|part| {
+            if let PromptTemplatePart::Argument(arg) = part {
+                Some(arg)
+            } else {
+                None
+            }
+        }).collect()
+    }
+
+    pub fn prompt_references(&self) -> Vec<&String> {
+        self.parts.iter().filter_map(|part| {
+            if let PromptTemplatePart::PromptReference(prompt) = part {
+                Some(prompt)
+            } else {
+                None
+            }
+        }).collect()
+    }
 }
 
 #[cfg(test)]
