@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn test_parse_only_escaped_literals() {
-        let result = parse_template("{{{{hello}}}}");
+        let result = parse_template("{{{{he{ll}o}}}}");
         assert!(result.is_ok());
         let (remaining, template) = result.unwrap();
         assert_eq!(remaining, "");
@@ -159,8 +159,8 @@ mod tests {
 
     #[test]
     fn test_parse_escaped_literal() {
-        let result = parse_escaped_literal("{{{{hello world}}}} more text");
-        assert_eq!(result, Ok((" more text", "hello world")));
+        let result = parse_escaped_literal("{{{{he{llo wo}rld}}}} more text");
+        assert_eq!(result, Ok((" more text", "he{llo wo}rld")));
     }
 
     #[test]

@@ -154,7 +154,7 @@ mod tests {
         let name = "complex_prompt";
         let content = "Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal_braces}}}}";
         let tags = vec!["tag1".to_string(), "tag2".to_string()];
-        
+
         let prompt = Prompt::new_template(name.to_string(), content.to_string(), tags.clone()).expect("Failed to create template prompt");
 
         assert_eq!(name, prompt.name());
@@ -168,28 +168,28 @@ mod tests {
         match &prompt {
             Prompt::Template { template, .. } => {
                 assert_eq!(6, template.parts.len());
-                
+
                 // Check each part
                 match &template.parts[0] {
                     PromptTemplatePart::Literal(text) => assert_eq!("Hello ", text),
                     _ => panic!("Expected Literal part"),
                 }
-                
+
                 match &template.parts[1] {
                     PromptTemplatePart::Argument(arg) => assert_eq!("name", arg),
                     _ => panic!("Expected Argument part"),
                 }
-                
+
                 match &template.parts[2] {
                     PromptTemplatePart::Literal(text) => assert_eq!(", welcome to ", text),
                     _ => panic!("Expected Literal part"),
                 }
-                
+
                 match &template.parts[3] {
                     PromptTemplatePart::PromptReference(prompt_name) => assert_eq!("greeting", prompt_name),
                     _ => panic!("Expected PromptReference part"),
                 }
-                
+
                 match &template.parts[4] {
                     PromptTemplatePart::Literal(text) => assert_eq!("! ", text),
                     _ => panic!("Expected Literal part"),
@@ -202,5 +202,99 @@ mod tests {
             },
             _ => panic!("Expected Template prompt"),
         }
+    }
+
+    #[test]
+    fn test_arguments_simple_prompt() {
+        let simple_prompt = Prompt::new_simple(
+            "simple".to_string(),
+            "This is a simple prompt".to_string(),
+            vec![]
+        );
+        assert!(simple_prompt.arguments().is_none());
+    }
+
+    #[test]
+    fn test_arguments_template_prompt() {
+        let template_prompt = Prompt::new_template(
+            "template".to_string(),
+            "Hello {{name}}, you are {{age}} years old!".to_string(),
+            vec![]
+        ).expect("Failed to create template prompt");
+
+        let args = template_prompt.arguments().expect("Expected Some(Vec<&String>)");
+        assert_eq!(2, args.len());
+        assert_eq!("name", args[0]);
+        assert_eq!("age", args[1]);
+    }
+
+    #[test]
+    fn test_arguments_template_prompt_without_args() {
+        let no_args_prompt = Prompt::new_template(
+            "no_args".to_string(),
+            "Hello, welcome to our service! {{{{literal_braces}}}}".to_string(),
+            vec![]
+        ).expect("Failed to create template prompt");
+
+        let args = no_args_prompt.arguments().expect("Expected Some(Vec<&String>)");
+        assert_eq!(0, args.len());
+    }
+
+    #[test]
+    fn test_prompt_references_simple() {
+        let simple_prompt = Prompt::new_simple(
+            "simple".to_string(),
+            "This is a simple prompt".to_string(),
+            vec![]
+        );
+        assert!(simple_prompt.prompt_references().is_none());
+    }
+
+
+
+    #[test]
+    fn test_prompt_references() {
+        let template_prompt = Prompt::new_template(
+            "template".to_string(),
+            "Greeting: {{prompt:greeting}}, Farewell: {{prompt:farewell}}".to_string(),
+            vec![]
+        ).expect("Failed to create template prompt");
+
+        let refs = template_prompt.prompt_references().expect("Expected Some(Vec<&String>)");
+        assert_eq!(2, refs.len());
+        assert_eq!("greeting", refs[0]);
+        assert_eq!("farewell", refs[1]);
+    }
+
+    #[test]
+    fn test_prompt_references_no_refs() {
+        let no_refs_prompt = Prompt::new_template(
+            "no_refs".to_string(),
+            "Hello {{name}}, how are you? {{{{literal_braces}}}}".to_string(),
+            vec![]
+        ).expect("Failed to create template prompt");
+        
+        let refs = no_refs_prompt.prompt_references().expect("Expected Some(Vec<&String>)");
+        assert_eq!(0, refs.len());
+    }
+
+    #[test]
+    fn test_arguments_and_prompt_references_combined() {
+        // Test with a complex template that has both arguments and prompt references
+        let complex_prompt = Prompt::new_template(
+            "complex".to_string(),
+            "Dear {{name}}, {{prompt:greeting}} {{{{literal_braces}}}} Best regards, {{signature}} from {{prompt:company}}".to_string(),
+            vec![]
+        ).expect("Failed to create template prompt");
+        
+        let args = complex_prompt.arguments().expect("Expected Some(Vec<&String>)");
+        assert_eq!(2, args.len());
+        assert_eq!("name", args[0]);
+        assert_eq!("signature", args[1]);
+
+        let refs = complex_prompt.prompt_references().expect("Expected Some(Vec<&String>)");
+        assert_eq!(2, refs.len());
+        assert_eq!("greeting", refs[0]);
+        assert_eq!("company", refs[1]);
     }
 }
