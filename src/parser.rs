@@ -65,9 +65,21 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_invalid_argument() {
+        let result = parse_argument("{{to/pic}} is the subject");
+        assert!(result.is_err(), "Expected parse to fail due to non-alphanumeric character");
+    }
+
+    #[test]
     fn test_parse_prompt_reference() {
         let result = parse_prompt_reference("{{prompt:basic_prompt}} is the prompt");
         assert_eq!(result, Ok((" is the prompt", "basic_prompt")));
+    }
+
+    #[test]
+    fn test_parse_invalid_prompt_reference() {
+        let result = parse_prompt_reference("{{prompt:basic:prompt}} is the prompt");
+        assert!(result.is_err(), "Expected parse to fail due to non-alphanumeric character");
     }
 
     #[test]
@@ -83,9 +95,21 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_element_invalid_argument() {
+        let result = parse_element("{{user&name}}");
+        assert!(result.is_err(), "Expected parse to fail due to non-alphanumeric character");
+    }
+
+    #[test]
     fn test_parse_element_prompt_reference() {
         let result = parse_element("{{prompt:username}}");
         assert_eq!(result, Ok(("", PromptTemplatePart::PromptReference(String::from("username")))));
+    }
+
+    #[test]
+    fn test_parse_element_invalid_prompt_reference() {
+        let result = parse_element("{{prompt:u$ername}}");
+        assert!(result.is_err(), "Expected parse to fail due to non-alphanumeric character");
     }
 
     #[test]
@@ -108,5 +132,4 @@ mod tests {
         assert_eq!(remaining, "");
         assert_eq!(template.parts.len(), 5);
     }
-
 }
