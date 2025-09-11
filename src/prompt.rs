@@ -99,8 +99,10 @@ mod tests {
         let content = "This is the prompt content";
         let tags = vec!["tag1".to_string(), "tag2".to_string()];
         let prompt = Prompt::new_simple(name.to_string(), content.to_string(), tags.clone());
+
         assert_eq!(name, prompt.name());
         assert_eq!(content, prompt.content());
+
         assert_eq!(2, prompt.tags().len());
         assert_eq!(tags[0], prompt.tags()[0]);
         assert_eq!(tags[1], prompt.tags()[1]);
@@ -108,14 +110,56 @@ mod tests {
 
     #[test]
     fn test_new_template_prompt() {
-        let name = "prompt_name";
-        let content = "This is the prompt content";
+        let name = "complex_prompt";
+        let content = "Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal_braces}}}}";
         let tags = vec!["tag1".to_string(), "tag2".to_string()];
+        
         let prompt = Prompt::new_template(name.to_string(), content.to_string(), tags.clone()).expect("Failed to create template prompt");
+
         assert_eq!(name, prompt.name());
         assert_eq!(content, prompt.content());
+
         assert_eq!(2, prompt.tags().len());
         assert_eq!(tags[0], prompt.tags()[0]);
         assert_eq!(tags[1], prompt.tags()[1]);
+
+        // Check that it's actually a template prompt
+        match &prompt {
+            Prompt::Template { template, .. } => {
+                assert_eq!(6, template.parts.len());
+                
+                // Check each part
+                match &template.parts[0] {
+                    PromptTemplatePart::Literal(text) => assert_eq!("Hello ", text),
+                    _ => panic!("Expected Literal part"),
+                }
+                
+                match &template.parts[1] {
+                    PromptTemplatePart::Argument(arg) => assert_eq!("name", arg),
+                    _ => panic!("Expected Argument part"),
+                }
+                
+                match &template.parts[2] {
+                    PromptTemplatePart::Literal(text) => assert_eq!(", welcome to ", text),
+                    _ => panic!("Expected Literal part"),
+                }
+                
+                match &template.parts[3] {
+                    PromptTemplatePart::PromptReference(prompt_name) => assert_eq!("greeting", prompt_name),
+                    _ => panic!("Expected PromptReference part"),
+                }
+                
+                match &template.parts[4] {
+                    PromptTemplatePart::Literal(text) => assert_eq!("! ", text),
+                    _ => panic!("Expected Literal part"),
+                }
+
+                match &template.parts[5] {
+                    PromptTemplatePart::Literal(text) => assert_eq!("literal_braces", text),
+                    _ => panic!("Expected Literal part"),
+                }
+            },
+            _ => panic!("Expected Template prompt"),
+        }
     }
 }
