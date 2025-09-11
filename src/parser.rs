@@ -1,5 +1,5 @@
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_until, take_while1, take_while_m_n};
+use nom::bytes::complete::{tag, take_until, take_while_m_n};
 use nom::combinator::{all_consuming, map, rest, verify};
 use nom::IResult;
 use nom::multi::{many0};
