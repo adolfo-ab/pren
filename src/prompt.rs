@@ -1,31 +1,20 @@
-use std::collections::HashMap;
-
-#[derive(Debug, Clone)]
-pub enum TemplatePart {
+#[derive(Debug, Clone, PartialEq)]
+pub enum PromptTemplatePart {
     Literal(String),
     Argument(String),
     PromptReference(String),
 }
 
 #[derive(Debug, Clone)]
-pub struct ParsedTemplate {
-    pub parts: Vec<TemplatePart>,
+pub struct PromptTemplate {
+    pub parts: Vec<PromptTemplatePart>,
 }
 
-pub struct PromptBase {
+#[derive(Debug, Clone)]
+pub struct Prompt {
     pub name: String,
-    pub tags: Vec<String>
-}
-
-pub enum Prompt {
-    Simple {
-        base: PromptBase,
-        content: String,
-    },
-    Template {
-        base: PromptBase,
-        template: ParsedTemplate,
-    }
+    pub template: PromptTemplate,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -36,26 +25,13 @@ pub enum PromptError {
     PromptNotSimple(String),
 }
 
-pub fn new_simple(name: String, content: String, tags: Vec<String>) -> Prompt {
-    Prompt::Simple {
-        base: PromptBase { name, tags },
-        content,
-    }
-}
 
-pub fn new_template(name: String, content: String, tags: Vec<String>) -> Result<Prompt, PromptError> {
-    let template = parse_template(&content)?;
-    Ok(Prompt::Template {
-        base: PromptBase { name, tags },
-        template,
-    })
-}
-
-pub trait PromptRegistry {
-    fn get_prompt(&self, name: String) -> Option<&Prompt>;
-}
-
+/*
 impl Prompt {
+    pub fn new(name: String, content: String, tags: Vec<String>) -> Prompt {
+
+    }
+
     pub fn name(&self) -> &str {
         match self {
             Prompt::Simple { base, .. } => &base.name,
@@ -375,3 +351,4 @@ mod tests {
         }
     }
 }
+*/
