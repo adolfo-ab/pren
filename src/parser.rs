@@ -117,7 +117,6 @@ mod tests {
     fn test_parse_special_characters_in_literals() {
         let result = parse_template("Hello {name} with braces but not template syntax");
         assert!(result.is_ok());
-        // Should parse as literal text, not as a template element
     }
 
     #[test]
@@ -225,7 +224,6 @@ mod tests {
 
     #[test]
     fn test_parse_identifier_max_length() {
-        // Test maximum allowed length (64 chars)
         let max_length_id = "a".repeat(64);
         let input = format!("{{{{{}}}}}", max_length_id); // Changed to double braces
         let result = parse_argument(&input);
@@ -235,7 +233,6 @@ mod tests {
 
     #[test]
     fn test_parse_identifier_too_long() {
-        // Test beyond maximum length (65 chars)
         let too_long_id = "a".repeat(65);
         let input = format!("{{{{{}}}}}", too_long_id); // Changed to double braces
         let result = parse_argument(&input);
@@ -244,7 +241,6 @@ mod tests {
 
     #[test]
     fn test_parse_prompt_reference_max_length() {
-        // Test maximum allowed length for prompt references
         let max_length_id = "a".repeat(64);
         let input = format!("{{{{prompt:{}}}}}", max_length_id); // Changed to double braces
         let result = parse_prompt_reference(&input);
@@ -254,7 +250,6 @@ mod tests {
 
     #[test]
     fn test_parse_prompt_reference_too_long() {
-        // Test beyond maximum length for prompt references
         let too_long_id = "a".repeat(65);
         let input = format!("{{{{prompt:{}}}}}", too_long_id); // Changed to double braces
         let result = parse_prompt_reference(&input);
@@ -263,7 +258,6 @@ mod tests {
 
     #[test]
     fn test_parse_minimum_length() {
-        // Test minimum length (1 char)
         let result = parse_argument("{{a}}"); // Already correct
         assert!(result.is_ok(), "1-character identifier should work");
         assert_eq!(result.unwrap().1, "a");
@@ -271,7 +265,6 @@ mod tests {
 
     #[test]
     fn test_parse_edge_case_lengths() {
-        // Test various edge case lengths
         for length in [1, 2, 63, 64] {
             let id = "a".repeat(length);
             let input = format!("{{{{{}}}}}", id); // Changed to double braces

@@ -297,4 +297,61 @@ mod tests {
         assert_eq!("greeting", refs[0]);
         assert_eq!("company", refs[1]);
     }
+
+    #[test]
+    fn test_template_method_simple_prompt() {
+        let simple_prompt = Prompt::new_simple(
+            "simple".to_string(),
+            "This is a simple prompt".to_string(),
+            vec![]
+        );
+        
+        // For simple prompts, template() should return None
+        assert!(simple_prompt.template().is_none());
+    }
+
+    #[test]
+    fn test_template_method_template_prompt() {
+        let template_prompt = Prompt::new_template(
+            "template".to_string(),
+            "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
+            vec!["test".to_string()]
+        ).expect("Failed to create template prompt");
+
+        // For template prompts, template() should return Some(&PromptTemplate)
+        let template = template_prompt.template().expect("Expected Some(&PromptTemplate)");
+        
+        // Verify that the template has the expected parts
+        assert_eq!(5, template.parts.len());
+        
+        // Check first part is a literal
+        match &template.parts[0] {
+            PromptTemplatePart::Literal(text) => assert_eq!("Hello ", text),
+            _ => panic!("Expected Literal part"),
+        }
+        
+        // Check second part is an argument
+        match &template.parts[1] {
+            PromptTemplatePart::Argument(arg) => assert_eq!("name", arg),
+            _ => panic!("Expected Argument part"),
+        }
+        
+        // Check third part is a literal
+        match &template.parts[2] {
+            PromptTemplatePart::Literal(text) => assert_eq!(", welcome to ", text),
+            _ => panic!("Expected Literal part"),
+        }
+        
+        // Check fourth part is a prompt reference
+        match &template.parts[3] {
+            PromptTemplatePart::PromptReference(prompt_name) => assert_eq!("greeting", prompt_name),
+            _ => panic!("Expected PromptReference part"),
+        }
+        
+        // Check fifth part is a literal
+        match &template.parts[4] {
+            PromptTemplatePart::Literal(text) => assert_eq!("!", text),
+            _ => panic!("Expected Literal part"),
+        }
+    }
 }
