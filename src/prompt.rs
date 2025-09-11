@@ -44,8 +44,25 @@ pub struct PromptTemplate {
 }
 
 impl Prompt {
-    fn is_simple(&self) -> bool {
-        matches!(self, Prompt::Simple { .. })
+    pub fn name(&self) -> &str {
+        match self {
+            Prompt::Simple { base } => &base.name,
+            Prompt::Template { base, .. } => &base.name,
+        }
+    }
+
+    pub fn content(&self) -> &str {
+        match self {
+            Prompt::Simple { base } => &base.content,
+            Prompt::Template { base, .. } => &base.content,
+        }
+    }
+
+    pub fn tags(&self) -> &Vec<String> {
+        match self {
+            Prompt::Simple { base } => &base.tags,
+            Prompt::Template { base, .. } => &base.tags,
+        }
     }
 
     pub fn new_simple(name: String, content: String, tags: Vec<String>) -> Prompt {
@@ -67,5 +84,38 @@ impl Prompt {
                 message: "Failed to parse template: incomplete input".to_string(),
             }),
         }
+    }
+
+
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_simple_prompt() {
+        let name = "prompt_name";
+        let content = "This is the prompt content";
+        let tags = vec!["tag1".to_string(), "tag2".to_string()];
+        let prompt = Prompt::new_simple(name.to_string(), content.to_string(), tags.clone());
+        assert_eq!(name, prompt.name());
+        assert_eq!(content, prompt.content());
+        assert_eq!(2, prompt.tags().len());
+        assert_eq!(tags[0], prompt.tags()[0]);
+        assert_eq!(tags[1], prompt.tags()[1]);
+    }
+
+    #[test]
+    fn test_new_template_prompt() {
+        let name = "prompt_name";
+        let content = "This is the prompt content";
+        let tags = vec!["tag1".to_string(), "tag2".to_string()];
+        let prompt = Prompt::new_template(name.to_string(), content.to_string(), tags.clone()).expect("Failed to create template prompt");
+        assert_eq!(name, prompt.name());
+        assert_eq!(content, prompt.content());
+        assert_eq!(2, prompt.tags().len());
+        assert_eq!(tags[0], prompt.tags()[0]);
+        assert_eq!(tags[1], prompt.tags()[1]);
     }
 }
