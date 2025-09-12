@@ -4,6 +4,7 @@ use std::fs::{create_dir_all};
 use std::path::PathBuf;
 use crate::registry::{PromptFile, PromptStorage};
 use toml;
+use crate::prompt::Prompt;
 
 pub struct FileStorage {
     pub base_path: PathBuf,
@@ -18,36 +19,28 @@ impl Default for FileStorage {
 }
 
 impl PromptStorage for FileStorage{
-    fn save_prompt(&self, name: &str, content: &str, tags: Vec<String>, prompt_type: &str) -> Result<(), Box<dyn Error>> {
-        if prompt_type != "simple" && prompt_type != "template" {
-            return Err("Invalid prompt type. Must be 'simple' or 'template'.".into());
-        }
+    fn save_prompt(&self, prompt: &Prompt) -> Result<(), Box<dyn Error>> {
+        self.ensure_base_directory_exists()?;
 
-        // Ensure base directory exists
-        if !self.base_path.exists() {
-            create_dir_all(&self.base_path)?;
-        } else if !self.base_path.is_dir() {
-            return Err("Base path is not a directory".into());
-        }
-
-        // Create file path with .toml extension
-        let file_path = self.base_path.join(format!("{}.toml", name));
+        let file_path = self.base_path.join(format!("{}.toml", prompt.name()));
 
         let prompt_file = PromptFile {
-            tags,
-            name: name.to_string(),
-            content: content.to_string(),
-            prompt_type: prompt_type.to_string(),
+            tags: prompt.tags().clone(),
+            name: prompt.name().to_string(),
+            content: prompt.content().to_string(),
+            prompt_type: match prompt {
+                Prompt::Simple { .. } => "simple".to_string(),
+                Prompt::Template { .. } => "template".to_string(),
+            },
         };
 
         let serialized_data = toml::to_string_pretty(&prompt_file)?;
-
-        fs::write(&file_path, &serialized_data)?;
+        fs::write(file_path, serialized_data)?;
 
         Ok(())
     }
 
-    fn load_prompt(&self, name: &str) -> Result<Option<PromptFile>, Box<dyn Error>> {
+    fn load_prompt(&self, name: &str) -> Result<Option<Prompt>, Box<dyn Error>> {
         todo!()
     }
 
@@ -59,8 +52,19 @@ impl PromptStorage for FileStorage{
         todo!()
     }
 
-    fn search_prompts_by_tags(&self, tags: &[String]) -> Result<Vec<PromptFile>, Box<dyn Error>> {
+    fn search_prompts_by_tags(&self, tags: &[String]) -> Result<Vec<Prompt>, Box<dyn Error>> {
         todo!()
+    }
+}
+
+impl FileStorage {
+    fn ensure_base_directory_exists(&self) -> Result<(), Box<dyn Error>> {
+        if !self.base_path.exists() {
+            create_dir_all(&self.base_path)?;
+        } else if !self.base_path.is_dir() {
+            return Err("Base path is not a directory".into());
+        }
+        Ok(())
     }
 }
 
@@ -69,6 +73,7 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+    use crate::prompt::Prompt;
 
     #[test]
     fn test_save_simple_prompt() {
@@ -77,12 +82,13 @@ mod tests {
             base_path: temp_dir.path().to_path_buf(),
         };
 
-        let result = storage.save_prompt(
-            "test_prompt",
-            "This is a test prompt",
-            vec!["tag1".to_string(), "tag2".to_string()],
-            "simple"
+        let prompt = Prompt::new_simple(
+            "test_prompt".to_string(),
+            "This is a test prompt".to_string(),
+            vec!["tag1".to_string(), "tag2".to_string()]
         );
+
+        let result = storage.save_prompt(&prompt);
 
         assert!(result.is_ok());
 
@@ -105,12 +111,13 @@ mod tests {
             base_path: temp_dir.path().to_path_buf(),
         };
 
-        let result = storage.save_prompt(
-            "template_prompt",
-            "This is a template prompt with {{variable}}",
-            vec!["template".to_string()],
-            "template"
-        );
+        let prompt = Prompt::new_template(
+            "template_prompt".to_string(),
+            "This is a template prompt with {{variable}}".to_string(),
+            vec!["template".to_string()]
+        ).expect("Failed to create template prompt");
+
+        let result = storage.save_prompt(&prompt);
 
         assert!(result.is_ok());
 
@@ -122,25 +129,20 @@ mod tests {
         let content = fs::read_to_string(file_path).unwrap();
         assert!(content.contains("This is a template prompt with {{variable}}"));
         assert!(content.contains("template"));
-        assert!(content.contains("template"));
     }
 
     #[test]
-    fn test_save_prompt_invalid_type() {
-        let temp_dir = TempDir::new().unwrap();
-        let storage = FileStorage {
-            base_path: temp_dir.path().to_path_buf(),
-        };
-
-        let result = storage.save_prompt(
-            "invalid_prompt",
-            "This is an invalid prompt",
-            vec![],
-            "invalid"
+    fn test_save_prompt_invalid_template() {
+        // Test that invalid template syntax fails at prompt creation time
+        let result = Prompt::new_template(
+            "invalid_template".to_string(),
+            "This has invalid syntax {{unclosed".to_string(),
+            vec![]
         );
 
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "Invalid prompt type. Must be 'simple' or 'template'.");
+        // The error should be a ParseTemplateError
+        assert!(result.unwrap_err().to_string().contains("Parse template error"));
     }
 
     #[test]
@@ -154,15 +156,16 @@ mod tests {
         // Directory should not exist yet
         assert!(!prompts_dir.exists());
 
-        let result = storage.save_prompt(
-            "dir_test",
-            "Test content",
-            vec![],
-            "simple"
+        let prompt = Prompt::new_simple(
+            "dir_test".to_string(),
+            "Test content".to_string(),
+            vec![]
         );
 
+        let result = storage.save_prompt(&prompt);
+
         assert!(result.is_ok());
-        
+
         // Directory should now exist
         assert!(prompts_dir.exists());
         assert!(prompts_dir.is_dir());
@@ -176,21 +179,21 @@ mod tests {
         };
 
         // Save first version
-        let result1 = storage.save_prompt(
-            "overwrite_test",
-            "First version",
-            vec!["v1".to_string()],
-            "simple"
+        let prompt1 = Prompt::new_simple(
+            "overwrite_test".to_string(),
+            "First version".to_string(),
+            vec!["v1".to_string()]
         );
+        let result1 = storage.save_prompt(&prompt1);
         assert!(result1.is_ok());
 
         // Save second version (should overwrite)
-        let result2 = storage.save_prompt(
-            "overwrite_test",
-            "Second version",
-            vec!["v2".to_string()],
-            "simple"
+        let prompt2 = Prompt::new_simple(
+            "overwrite_test".to_string(),
+            "Second version".to_string(),
+            vec!["v2".to_string()]
         );
+        let result2 = storage.save_prompt(&prompt2);
         assert!(result2.is_ok());
 
         // Check that the file contains the second version
@@ -200,5 +203,53 @@ mod tests {
         assert!(content.contains("v2"));
         // Should not contain first version content
         assert!(!content.contains("v1"));
+    }
+
+    #[test]
+    fn test_save_complex_template_prompt() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        let prompt = Prompt::new_template(
+            "complex_template".to_string(),
+            "Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal}}}}".to_string(),
+            vec!["complex".to_string(), "template".to_string()]
+        ).expect("Failed to create complex template");
+
+        let result = storage.save_prompt(&prompt);
+        assert!(result.is_ok());
+
+        let file_path = temp_dir.path().join("complex_template.toml");
+        assert!(file_path.exists());
+
+        let content = fs::read_to_string(file_path).unwrap();
+        assert!(content.contains("Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal}}}}"));
+        assert!(content.contains("complex"));
+        assert!(content.contains("template"));
+    }
+
+    #[test]
+    fn test_ensure_base_directory_exists_when_file_exists() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("not_a_directory");
+
+        // Create a file where we expect a directory
+        fs::write(&file_path, "some content").unwrap();
+
+        let storage = FileStorage {
+            base_path: file_path,
+        };
+
+        let prompt = Prompt::new_simple(
+            "test".to_string(),
+            "content".to_string(),
+            vec![]
+        );
+
+        let result = storage.save_prompt(&prompt);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "Base path is not a directory");
     }
 }

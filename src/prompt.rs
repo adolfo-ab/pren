@@ -2,6 +2,7 @@ use std::error::Error;
 use nom::Err as NomErr;
 use crate::parser::parse_template;
 
+#[derive(Debug)]
 pub struct PromptBase {
     pub name: String,
     pub content: String,
@@ -21,6 +22,7 @@ impl std::fmt::Display for ParseTemplateError {
 
 impl Error for ParseTemplateError {}
 
+#[derive(Debug)]
 pub enum Prompt {
     Simple{
         base: PromptBase,
