@@ -4,6 +4,7 @@ use std::fs::{create_dir_all};
 use std::path::PathBuf;
 use crate::registry::{PromptFile, PromptStorage};
 use toml;
+use walkdir::WalkDir;
 use crate::prompt::{ParseTemplateError, Prompt};
 
 #[derive(Debug)]
@@ -101,7 +102,7 @@ impl PromptStorage for FileStorage{
         Ok(())
     }
 
-    fn load_prompt(&self, name: &str) -> Result<Option<Prompt>, FileStorageError> {
+    fn get_prompt(&self, name: &str) -> Result<Option<Prompt>, FileStorageError> {
         let file_path = self.base_path.join(format!("{}.toml", name));
         if !file_path.exists() {
             return Err(FileStorageError::PromptNotFound(
@@ -121,16 +122,71 @@ impl PromptStorage for FileStorage{
         Ok(Some(prompt))
     }
 
-    fn list_prompts(&self) -> Result<Vec<String>, Box<dyn Error>> {
-        todo!()
+    fn get_prompts(&self) -> Result<Vec<Prompt>, FileStorageError> {
+        let mut prompts = Vec::new();
+        
+        // Walk through the base directory
+        for entry in WalkDir::new(&self.base_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file() && e.path().extension().map_or(false, |ext| ext == "toml"))
+        {
+            let file_path = entry.path();
+            
+            // Read and parse the file
+            let content = fs::read_to_string(file_path)?;
+            let prompt_file: PromptFile = toml::from_str(&content)?;
+            
+            // Convert to Prompt based on type
+            let prompt = match prompt_file.prompt_type.as_str() {
+                "simple" => Prompt::new_simple(prompt_file.name, prompt_file.content, prompt_file.tags),
+                "template" => Prompt::new_template(prompt_file.name, prompt_file.content, prompt_file.tags)?,
+                _ => return Err(FileStorageError::InvalidPromptType(prompt_file.prompt_type))
+            };
+            
+            prompts.push(prompt);
+        }
+        
+        Ok(prompts)
     }
 
-    fn delete_prompt(&self, name: &str) -> Result<(), Box<dyn Error>> {
-        todo!()
+    fn get_prompts_by_tag(&self, tags: &[String]) -> Result<Vec<Prompt>, FileStorageError> {
+        let mut prompts = Vec::new();
+
+        // Walk through the base directory
+        for entry in WalkDir::new(&self.base_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file() && e.path().extension().map_or(false, |ext| ext == "toml"))
+        {
+            let file_path = entry.path();
+
+            // Read and parse the file
+            let content = fs::read_to_string(file_path)?;
+            let prompt_file: PromptFile = toml::from_str(&content)?;
+
+            // Check if any of the prompt's tags match any of the requested tags
+            if prompt_file.tags.iter().any(|prompt_tag| tags.contains(prompt_tag)) {
+                let prompt = match prompt_file.prompt_type.as_str() {
+                    "simple" => Prompt::new_simple(prompt_file.name, prompt_file.content, prompt_file.tags),
+                    "template" => Prompt::new_template(prompt_file.name, prompt_file.content, prompt_file.tags)?,
+                    _ => return Err(FileStorageError::InvalidPromptType(prompt_file.prompt_type))
+                };
+                prompts.push(prompt);
+            }
+        }
+
+        Ok(prompts)
     }
 
-    fn search_prompts_by_tags(&self, tags: &[String]) -> Result<Vec<Prompt>, Box<dyn Error>> {
-        todo!()
+    fn delete_prompt(&self, name: &str) -> Result<(), FileStorageError> {
+        let file_path = self.base_path.join(format!("{}.toml", name));
+        if !file_path.exists() {
+            return Ok(());
+        }
+
+        fs::remove_file(file_path)?;
+        Ok(())
     }
 }
 
@@ -347,7 +403,7 @@ mod tests {
         storage.save_prompt(&original_prompt).unwrap();
 
         // Now load it back
-        let result = storage.load_prompt("load_test_simple");
+        let result = storage.get_prompt("load_test_simple");
         assert!(result.is_ok());
 
         let loaded_prompt = result.unwrap().unwrap();
@@ -378,7 +434,7 @@ mod tests {
         storage.save_prompt(&original_prompt).unwrap();
 
         // Now load it back
-        let result = storage.load_prompt("load_test_template");
+        let result = storage.get_prompt("load_test_template");
         assert!(result.is_ok());
 
         let loaded_prompt = result.unwrap().unwrap();
@@ -400,7 +456,7 @@ mod tests {
             base_path: temp_dir.path().to_path_buf(),
         };
 
-        let result = storage.load_prompt("nonexistent_prompt");
+        let result = storage.get_prompt("nonexistent_prompt");
         assert!(result.is_err());
 
         match result.unwrap_err() {
@@ -422,7 +478,7 @@ mod tests {
         let file_path = temp_dir.path().join("invalid_toml.toml");
         fs::write(file_path, "invalid toml content [[[").unwrap();
 
-        let result = storage.load_prompt("invalid_toml");
+        let result = storage.get_prompt("invalid_toml");
         assert!(result.is_err());
 
         match result.unwrap_err() {
@@ -448,7 +504,7 @@ mod tests {
         let file_path = temp_dir.path().join("invalid_type_test.toml");
         fs::write(file_path, invalid_toml).unwrap();
 
-        let result = storage.load_prompt("invalid_type_test");
+        let result = storage.get_prompt("invalid_type_test");
         assert!(result.is_err());
 
         match result.unwrap_err() {
@@ -476,7 +532,7 @@ mod tests {
         let file_path = temp_dir.path().join("invalid_template_syntax.toml");
         fs::write(file_path, invalid_template_toml).unwrap();
 
-        let result = storage.load_prompt("invalid_template_syntax");
+        let result = storage.get_prompt("invalid_template_syntax");
         assert!(result.is_err());
 
         match result.unwrap_err() {
@@ -500,7 +556,7 @@ mod tests {
         let file_path = temp_dir.path().join("incomplete_test.toml");
         fs::write(file_path, incomplete_toml).unwrap();
 
-        let result = storage.load_prompt("incomplete_test");
+        let result = storage.get_prompt("incomplete_test");
         assert!(result.is_err());
 
         match result.unwrap_err() {
@@ -525,7 +581,7 @@ mod tests {
         storage.save_prompt(&prompt).unwrap();
 
         // Load it back
-        let result = storage.load_prompt("no_tags_test");
+        let result = storage.get_prompt("no_tags_test");
         assert!(result.is_ok());
 
         let loaded_prompt = result.unwrap().unwrap();
@@ -551,7 +607,7 @@ mod tests {
         storage.save_prompt(&original_prompt).unwrap();
 
         // Load it back
-        let result = storage.load_prompt("complex_template_load");
+        let result = storage.get_prompt("complex_template_load");
         assert!(result.is_ok());
 
         let loaded_prompt = result.unwrap().unwrap();
@@ -583,10 +639,261 @@ mod tests {
         storage.save_prompt(&original_prompt).unwrap();
 
         // Load it back
-        let result = storage.load_prompt("special_chars_test");
+        let result = storage.get_prompt("special_chars_test");
         assert!(result.is_ok());
 
         let loaded_prompt = result.unwrap().unwrap();
         assert_eq!(loaded_prompt.content(), special_content);
+    }
+
+    #[test]
+    fn test_delete_prompt() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Save a prompt
+        let prompt = Prompt::new_simple(
+            "delete_test".to_string(),
+            "This is a test prompt for deletion".to_string(),
+            vec!["test".to_string(), "delete".to_string()]
+        );
+        storage.save_prompt(&prompt).unwrap();
+
+        // Verify the file exists
+        let file_path = temp_dir.path().join("delete_test.toml");
+        assert!(file_path.exists());
+
+        // Delete the prompt
+        let result = storage.delete_prompt("delete_test");
+        assert!(result.is_ok());
+
+        // Verify the file no longer exists
+        assert!(!file_path.exists());
+
+        // Try to delete a non-existent prompt (should succeed)
+        let result = storage.delete_prompt("nonexistent");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_prompts() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Save a few different prompts
+        let simple_prompt = Prompt::new_simple(
+            "simple_test".to_string(),
+            "This is a simple prompt".to_string(),
+            vec!["simple".to_string(), "test".to_string()]
+        );
+        storage.save_prompt(&simple_prompt).unwrap();
+
+        let template_prompt = Prompt::new_template(
+            "template_test".to_string(),
+            "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
+            vec!["template".to_string(), "test".to_string()]
+        ).unwrap();
+        storage.save_prompt(&template_prompt).unwrap();
+
+        // Get all prompts
+        let result = storage.get_prompts();
+        assert!(result.is_ok());
+
+        let prompts = result.unwrap();
+        assert_eq!(prompts.len(), 2);
+
+        // Find and verify each prompt
+        let simple_found = prompts.iter().find(|p| p.name() == "simple_test").unwrap();
+        assert_eq!(simple_found.content(), "This is a simple prompt");
+        assert_eq!(simple_found.tags(), &vec!["simple".to_string(), "test".to_string()]);
+        match simple_found {
+            Prompt::Simple { .. } => {},
+            _ => panic!("Expected Simple prompt variant"),
+        }
+
+        let template_found = prompts.iter().find(|p| p.name() == "template_test").unwrap();
+        assert_eq!(template_found.content(), "Hello {{name}}, welcome to {{prompt:greeting}}!");
+        assert_eq!(template_found.tags(), &vec!["template".to_string(), "test".to_string()]);
+        match template_found {
+            Prompt::Template { .. } => {},
+            _ => panic!("Expected Template prompt variant"),
+        }
+    }
+
+    #[test]
+    fn test_get_prompts_empty_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Get prompts from empty directory
+        let result = storage.get_prompts();
+        assert!(result.is_ok());
+
+        let prompts = result.unwrap();
+        assert_eq!(prompts.len(), 0);
+    }
+
+    #[test]
+    fn test_get_prompts_with_invalid_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Create a valid prompt file
+        let prompt = Prompt::new_simple(
+            "valid_prompt".to_string(),
+            "This is a valid prompt".to_string(),
+            vec!["valid".to_string()]
+        );
+        storage.save_prompt(&prompt).unwrap();
+
+        // Create an invalid TOML file
+        let invalid_file_path = temp_dir.path().join("invalid.toml");
+        fs::write(invalid_file_path, "invalid toml content [[[").unwrap();
+
+        // Get prompts - should fail due to invalid TOML
+        let result = storage.get_prompts();
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            FileStorageError::DeserializationError(_) => {},
+            _ => panic!("Expected DeserializationError"),
+        }
+    }
+
+    #[test]
+    fn test_get_prompts_by_tag() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Save a few different prompts with different tags
+        let simple_prompt = Prompt::new_simple(
+            "simple_test".to_string(),
+            "This is a simple prompt".to_string(),
+            vec!["simple".to_string(), "test".to_string()]
+        );
+        storage.save_prompt(&simple_prompt).unwrap();
+
+        let template_prompt = Prompt::new_template(
+            "template_test".to_string(),
+            "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
+            vec!["template".to_string(), "test".to_string()]
+        ).unwrap();
+        storage.save_prompt(&template_prompt).unwrap();
+
+        let another_prompt = Prompt::new_simple(
+            "another_test".to_string(),
+            "This is another prompt".to_string(),
+            vec!["another".to_string()]
+        );
+        storage.save_prompt(&another_prompt).unwrap();
+
+        // Get prompts by "test" tag (should return 2 prompts)
+        let result = storage.get_prompts_by_tag(&["test".to_string()]);
+        assert!(result.is_ok());
+
+        let prompts = result.unwrap();
+        assert_eq!(prompts.len(), 2);
+
+        // Find and verify each prompt
+        let simple_found = prompts.iter().find(|p| p.name() == "simple_test").unwrap();
+        assert_eq!(simple_found.content(), "This is a simple prompt");
+        assert_eq!(simple_found.tags(), &vec!["simple".to_string(), "test".to_string()]);
+        match simple_found {
+            Prompt::Simple { .. } => {},
+            _ => panic!("Expected Simple prompt variant"),
+        }
+
+        let template_found = prompts.iter().find(|p| p.name() == "template_test").unwrap();
+        assert_eq!(template_found.content(), "Hello {{name}}, welcome to {{prompt:greeting}}!");
+        assert_eq!(template_found.tags(), &vec!["template".to_string(), "test".to_string()]);
+        match template_found {
+            Prompt::Template { .. } => {},
+            _ => panic!("Expected Template prompt variant"),
+        }
+
+        // Get prompts by "another" tag (should return 1 prompt)
+        let result = storage.get_prompts_by_tag(&["another".to_string()]);
+        assert!(result.is_ok());
+
+        let prompts = result.unwrap();
+        assert_eq!(prompts.len(), 1);
+
+        let another_found = prompts.first().unwrap();
+        assert_eq!(another_found.name(), "another_test");
+        assert_eq!(another_found.content(), "This is another prompt");
+        assert_eq!(another_found.tags(), &vec!["another".to_string()]);
+
+        // Get prompts by a tag that doesn't exist (should return 0 prompts)
+        let result = storage.get_prompts_by_tag(&["nonexistent".to_string()]);
+        assert!(result.is_ok());
+
+        let prompts = result.unwrap();
+        assert_eq!(prompts.len(), 0);
+
+        // Get prompts by multiple tags (should return prompts matching any of the tags)
+        let result = storage.get_prompts_by_tag(&["simple".to_string(), "another".to_string()]);
+        assert!(result.is_ok());
+
+        let prompts = result.unwrap();
+        assert_eq!(prompts.len(), 2);
+
+        let simple_found = prompts.iter().find(|p| p.name() == "simple_test").unwrap();
+        let another_found = prompts.iter().find(|p| p.name() == "another_test").unwrap();
+        assert_eq!(simple_found.name(), "simple_test");
+        assert_eq!(another_found.name(), "another_test");
+    }
+
+    #[test]
+    fn test_get_prompts_by_tag_empty_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Get prompts by tag from empty directory
+        let result = storage.get_prompts_by_tag(&["test".to_string()]);
+        assert!(result.is_ok());
+
+        let prompts = result.unwrap();
+        assert_eq!(prompts.len(), 0);
+    }
+
+    #[test]
+    fn test_get_prompts_by_tag_with_invalid_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Create a valid prompt with a tag
+        let prompt = Prompt::new_simple(
+            "valid_prompt".to_string(),
+            "This is a valid prompt".to_string(),
+            vec!["valid".to_string()]
+        );
+        storage.save_prompt(&prompt).unwrap();
+
+        // Create an invalid TOML file
+        let invalid_file_path = temp_dir.path().join("invalid.toml");
+        fs::write(invalid_file_path, "invalid toml content [[[[").unwrap();
+
+        // Get prompts by tag - should fail due to invalid TOML
+        let result = storage.get_prompts_by_tag(&["valid".to_string()]);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            FileStorageError::DeserializationError(_) => {},
+            _ => panic!("Expected DeserializationError"),
+        }
     }
 }
