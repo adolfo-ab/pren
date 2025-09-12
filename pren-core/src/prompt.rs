@@ -124,7 +124,7 @@ impl Prompt {
         }
     }
 
-    pub fn render(&self, arguments: &HashMap<String, String>, storage: &dyn PromptStorage) -> Result<String, RenderTemplateError> {
+    pub fn render<S: PromptStorage>(&self, arguments: &HashMap<String, String>, storage: &S) -> Result<String, RenderTemplateError> {
         match self {
             Prompt::Simple { base } => Ok(base.content.clone()),
             Prompt::Template { template, .. } => template.render(arguments, storage),
@@ -153,7 +153,7 @@ impl PromptTemplate {
         }).collect()
     }
 
-    pub fn render(&self, arguments: &HashMap<String, String>, storage: &dyn PromptStorage) -> Result<String, RenderTemplateError> {
+    pub fn render<S: PromptStorage>(&self, arguments: &HashMap<String, String>, storage: &S) -> Result<String, RenderTemplateError> {
         let mut result = String::new();
         
         for part in &self.parts {
@@ -195,6 +195,7 @@ impl PromptTemplate {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Error;
     use super::*;
 
     #[test]
@@ -427,23 +428,25 @@ mod tests {
     }
     
     impl PromptStorage for MockStorage {
-        fn save_prompt(&self, _prompt: &Prompt) -> Result<(), crate::file_storage::FileStorageError> {
+        type Error = Error;
+
+        fn save_prompt(&self, _prompt: &Prompt) -> Result<(), Error> {
             Ok(())
         }
         
-        fn get_prompt(&self, name: &str) -> Result<Option<Prompt>, crate::file_storage::FileStorageError> {
+        fn get_prompt(&self, name: &str) -> Result<Option<Prompt>, Error> {
             Ok(self.prompts.get(name).cloned())
         }
         
-        fn get_prompts(&self) -> Result<Vec<Prompt>, crate::file_storage::FileStorageError> {
+        fn get_prompts(&self) -> Result<Vec<Prompt>, Error> {
             Ok(self.prompts.values().cloned().collect())
         }
         
-        fn delete_prompt(&self, _name: &str) -> Result<(), crate::file_storage::FileStorageError> {
+        fn delete_prompt(&self, _name: &str) -> Result<(), Error> {
             Ok(())
         }
         
-        fn get_prompts_by_tag(&self, _tags: &[String]) -> Result<Vec<Prompt>, crate::file_storage::FileStorageError> {
+        fn get_prompts_by_tag(&self, _tags: &[String]) -> Result<Vec<Prompt>, Error> {
             Ok(vec![])
         }
     }

@@ -81,6 +81,8 @@ impl Default for FileStorage {
 }
 
 impl PromptStorage for FileStorage{
+    type Error = FileStorageError;
+    
     fn save_prompt(&self, prompt: &Prompt) -> Result<(), FileStorageError> {
         self.ensure_base_directory_exists()?;
 

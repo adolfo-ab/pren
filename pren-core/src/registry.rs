@@ -12,9 +12,11 @@ pub struct PromptFile {
 }
 
 pub trait PromptStorage {
-    fn save_prompt(&self, prompt: &Prompt) -> Result<(), FileStorageError>;
-    fn get_prompt(&self, name: &str) -> Result<Option<Prompt>, FileStorageError>;
-    fn get_prompts(&self) -> Result<Vec<Prompt>, FileStorageError>;
-    fn delete_prompt(&self, name: &str) -> Result<(), FileStorageError>;
-    fn get_prompts_by_tag(&self, tags: &[String]) -> Result<Vec<Prompt>, FileStorageError>;
+    type Error: std::error::Error + Send + Sync;
+
+    fn save_prompt(&self, prompt: &Prompt) -> Result<(), Self::Error>;
+    fn get_prompt(&self, name: &str) -> Result<Option<Prompt>, Self::Error>;
+    fn get_prompts(&self) -> Result<Vec<Prompt>, Self::Error>;
+    fn delete_prompt(&self, name: &str) -> Result<(), Self::Error>;
+    fn get_prompts_by_tag(&self, tags: &[String]) -> Result<Vec<Prompt>, Self::Error>;
 }
