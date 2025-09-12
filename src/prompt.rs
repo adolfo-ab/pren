@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::collections::HashMap;
 use nom::Err as NomErr;
 use crate::parser::parse_template;
 
@@ -21,6 +22,19 @@ impl std::fmt::Display for ParseTemplateError {
 }
 
 impl Error for ParseTemplateError {}
+
+#[derive(Debug)]
+pub struct RenderTemplateError {
+    pub message: String,
+}
+
+impl std::fmt::Display for RenderTemplateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Render template error: {}", self.message)
+    }
+}
+
+impl Error for RenderTemplateError {}
 
 #[derive(Debug)]
 pub enum Prompt {
@@ -108,6 +122,13 @@ impl Prompt {
             Prompt::Template { template, .. } => Some(template.prompt_references()),
         }
     }
+
+    pub fn render(&self, arguments: &HashMap<String, String>) -> Result<String, RenderTemplateError> {
+        match self {
+            Prompt::Simple { base } => Ok(base.content.clone()),
+            Prompt::Template { template, .. } => template.render(arguments),
+        }
+    }
 }
 
 impl PromptTemplate {
@@ -129,6 +150,31 @@ impl PromptTemplate {
                 None
             }
         }).collect()
+    }
+
+    pub fn render(&self, arguments: &HashMap<String, String>) -> Result<String, RenderTemplateError> {
+        let mut result = String::new();
+        
+        for part in &self.parts {
+            match part {
+                PromptTemplatePart::Literal(text) => result.push_str(text),
+                PromptTemplatePart::Argument(name) => {
+                    match arguments.get(name) {
+                        Some(value) => result.push_str(value),
+                        None => return Err(RenderTemplateError {
+                            message: format!("Missing argument: {}", name),
+                        }),
+                    }
+                },
+                PromptTemplatePart::PromptReference(name) => {
+                    // For now, we'll just add a placeholder for prompt references
+                    // In a full implementation, this would need to resolve the referenced prompt
+                    result.push_str(&format!("{{prompt:{}}}", name));
+                },
+            }
+        }
+        
+        Ok(result)
     }
 }
 
@@ -355,5 +401,81 @@ mod tests {
             PromptTemplatePart::Literal(text) => assert_eq!("!", text),
             _ => panic!("Expected Literal part"),
         }
+    }
+
+    #[test]
+    fn test_render_simple_prompt() {
+        let simple_prompt = Prompt::new_simple(
+            "simple".to_string(),
+            "This is a simple prompt".to_string(),
+            vec![]
+        );
+        
+        let mut args = std::collections::HashMap::new();
+        args.insert("name".to_string(), "World".to_string());
+        
+        let rendered = simple_prompt.render(&args).expect("Failed to render simple prompt");
+        assert_eq!("This is a simple prompt", rendered);
+    }
+
+    #[test]
+    fn test_render_template_prompt() {
+        let template_prompt = Prompt::new_template(
+            "template".to_string(),
+            "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
+            vec![]
+        ).expect("Failed to create template prompt");
+        
+        let mut args = std::collections::HashMap::new();
+        args.insert("name".to_string(), "World".to_string());
+        
+        let rendered = template_prompt.render(&args).expect("Failed to render template prompt");
+        assert_eq!("Hello World, welcome to {prompt:greeting}!", rendered);
+    }
+
+    #[test]
+    fn test_render_template_prompt_missing_argument() {
+        let template_prompt = Prompt::new_template(
+            "template".to_string(),
+            "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
+            vec![]
+        ).expect("Failed to create template prompt");
+        
+        let args = std::collections::HashMap::new();
+        
+        let result = template_prompt.render(&args);
+        assert!(result.is_err());
+        assert_eq!("Missing argument: name", result.unwrap_err().message);
+    }
+
+    #[test]
+    fn test_render_template_prompt_multiple_arguments() {
+        let template_prompt = Prompt::new_template(
+            "template".to_string(),
+            "Dear {{name}}, you are {{age}} years old!".to_string(),
+            vec![]
+        ).expect("Failed to create template prompt");
+        
+        let mut args = std::collections::HashMap::new();
+        args.insert("name".to_string(), "Alice".to_string());
+        args.insert("age".to_string(), "30".to_string());
+        
+        let rendered = template_prompt.render(&args).expect("Failed to render template prompt");
+        assert_eq!("Dear Alice, you are 30 years old!", rendered);
+    }
+
+    #[test]
+    fn test_render_template_prompt_with_escaped_literals() {
+        let template_prompt = Prompt::new_template(
+            "template".to_string(),
+            "Hello {{{{{{name}}}}}}, you are {{age}} years old!".to_string(),
+            vec![]
+        ).expect("Failed to create template prompt");
+        
+        let mut args = std::collections::HashMap::new();
+        args.insert("age".to_string(), "30".to_string());
+        
+        let rendered = template_prompt.render(&args).expect("Failed to render template prompt");
+        assert_eq!("Hello {{name}}, you are 30 years old!", rendered);
     }
 }

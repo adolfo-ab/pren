@@ -1,4 +1,3 @@
-use std::error::Error;
 use serde::{Deserialize, Serialize};
 use crate::file_storage::FileStorageError;
 use crate::prompt::Prompt;
