@@ -14,7 +14,7 @@ pub struct PromptFile {
 
 pub trait PromptStorage {
     fn save_prompt(&self, prompt: &Prompt) -> Result<(), FileStorageError>;
-    fn load_prompt(&self, name: &str) -> Result<Option<Prompt>, Box<dyn Error>>;
+    fn load_prompt(&self, name: &str) -> Result<Option<Prompt>, FileStorageError>;
     fn list_prompts(&self) -> Result<Vec<String>, Box<dyn Error>>;
     fn delete_prompt(&self, name: &str) -> Result<(), Box<dyn Error>>;
     fn search_prompts_by_tags(&self, tags: &[String]) -> Result<Vec<Prompt>, Box<dyn Error>>;

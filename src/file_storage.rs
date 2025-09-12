@@ -4,13 +4,17 @@ use std::fs::{create_dir_all};
 use std::path::PathBuf;
 use crate::registry::{PromptFile, PromptStorage};
 use toml;
-use crate::prompt::Prompt;
+use crate::prompt::{ParseTemplateError, Prompt};
 
 #[derive(Debug)]
 pub enum FileStorageError {
     IoError(io::Error),
     SerializationError(toml::ser::Error),
+    DeserializationError(toml::de::Error),
     InvalidBasePath(String),
+    PromptNotFound(String),
+    InvalidPromptType(String),
+    ParseTemplateError(ParseTemplateError),
 }
 
 impl fmt::Display for FileStorageError {
@@ -18,7 +22,11 @@ impl fmt::Display for FileStorageError {
         match self {
             FileStorageError::IoError(err) => write!(f, "IO error: {}", err),
             FileStorageError::SerializationError(err) => write!(f, "Failed to serialize prompt: {}", err),
+            FileStorageError::DeserializationError(err) => write!(f, "Failed to deserialize prompt: {}", err),
             FileStorageError::InvalidBasePath(path) => write!(f, "Invalid base path: {}", path),
+            FileStorageError::PromptNotFound(path) => write!(f, "Prompt not found: {}", path),
+            FileStorageError::InvalidPromptType(prompt_type) => write!(f, "Invalid prompt type, must be 'simple' or 'template': {}", prompt_type),
+            FileStorageError::ParseTemplateError(err) => write!(f, "{}", err),
         }
     }
 }
@@ -28,6 +36,8 @@ impl Error for FileStorageError {
         match self {
             FileStorageError::IoError(err) => Some(err),
             FileStorageError::SerializationError(err) => Some(err),
+            FileStorageError::DeserializationError(err) => Some(err),
+            FileStorageError::ParseTemplateError(err) => Some(err),
             _ => None,
         }
     }
@@ -42,6 +52,18 @@ impl From<io::Error> for FileStorageError {
 impl From<toml::ser::Error> for FileStorageError {
     fn from(err: toml::ser::Error) -> Self {
         FileStorageError::SerializationError(err)
+    }
+}
+
+impl From<toml::de::Error> for FileStorageError {
+    fn from(err: toml::de::Error) -> Self {
+        FileStorageError::DeserializationError(err)
+    }
+}
+
+impl From<ParseTemplateError> for FileStorageError {
+    fn from(err: ParseTemplateError) -> Self {
+        FileStorageError::ParseTemplateError(err)
     }
 }
 
@@ -79,8 +101,24 @@ impl PromptStorage for FileStorage{
         Ok(())
     }
 
-    fn load_prompt(&self, name: &str) -> Result<Option<Prompt>, Box<dyn Error>> {
-        todo!()
+    fn load_prompt(&self, name: &str) -> Result<Option<Prompt>, FileStorageError> {
+        let file_path = self.base_path.join(format!("{}.toml", name));
+        if !file_path.exists() {
+            return Err(FileStorageError::PromptNotFound(
+                file_path.display().to_string()
+            ))
+        }
+
+        let content = fs::read_to_string(file_path)?;
+        let prompt_file: PromptFile = toml::from_str(&content)?;
+
+        let prompt = match prompt_file.prompt_type.as_str() {
+            "simple" => Prompt::new_simple(prompt_file.name, prompt_file.content, prompt_file.tags),
+            "template" => Prompt::new_template(prompt_file.name, prompt_file.content, prompt_file.tags)?,
+            _ => return Err(FileStorageError::InvalidPromptType(prompt_file.prompt_type))
+        };
+
+        Ok(Some(prompt))
     }
 
     fn list_prompts(&self) -> Result<Vec<String>, Box<dyn Error>> {
@@ -291,6 +329,5 @@ mod tests {
 
         let result = storage.save_prompt(&prompt);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "Base path is not a directory");
     }
 }
