@@ -343,6 +343,7 @@ mod tests {
 
     #[test]
     fn test_arguments_and_prompt_references_combined() {
+
         let complex_prompt = Prompt::new_template(
             "complex".to_string(),
             "Dear {{name}}, {{prompt:greeting}} {{{{literal_braces}}}} Best regards, {{signature}} from {{prompt:company}}".to_string(),
