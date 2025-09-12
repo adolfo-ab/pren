@@ -1,5 +1,6 @@
 use std::error::Error;
 use serde::{Deserialize, Serialize};
+use crate::file_storage::FileStorageError;
 use crate::prompt::Prompt;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -12,7 +13,7 @@ pub struct PromptFile {
 }
 
 pub trait PromptStorage {
-    fn save_prompt(&self, prompt: &Prompt) -> Result<(), Box<dyn Error>>;
+    fn save_prompt(&self, prompt: &Prompt) -> Result<(), FileStorageError>;
     fn load_prompt(&self, name: &str) -> Result<Option<Prompt>, Box<dyn Error>>;
     fn list_prompts(&self) -> Result<Vec<String>, Box<dyn Error>>;
     fn delete_prompt(&self, name: &str) -> Result<(), Box<dyn Error>>;

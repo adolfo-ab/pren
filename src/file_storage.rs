@@ -1,10 +1,49 @@
 use std::error::Error;
-use std::fs;
+use std::{fmt, fs, io};
 use std::fs::{create_dir_all};
 use std::path::PathBuf;
 use crate::registry::{PromptFile, PromptStorage};
 use toml;
 use crate::prompt::Prompt;
+
+#[derive(Debug)]
+pub enum FileStorageError {
+    IoError(io::Error),
+    SerializationError(toml::ser::Error),
+    InvalidBasePath(String),
+}
+
+impl fmt::Display for FileStorageError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FileStorageError::IoError(err) => write!(f, "IO error: {}", err),
+            FileStorageError::SerializationError(err) => write!(f, "Failed to serialize prompt: {}", err),
+            FileStorageError::InvalidBasePath(path) => write!(f, "Invalid base path: {}", path),
+        }
+    }
+}
+
+impl Error for FileStorageError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            FileStorageError::IoError(err) => Some(err),
+            FileStorageError::SerializationError(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<io::Error> for FileStorageError {
+    fn from(err: io::Error) -> Self {
+        FileStorageError::IoError(err)
+    }
+}
+
+impl From<toml::ser::Error> for FileStorageError {
+    fn from(err: toml::ser::Error) -> Self {
+        FileStorageError::SerializationError(err)
+    }
+}
 
 pub struct FileStorage {
     pub base_path: PathBuf,
@@ -19,7 +58,7 @@ impl Default for FileStorage {
 }
 
 impl PromptStorage for FileStorage{
-    fn save_prompt(&self, prompt: &Prompt) -> Result<(), Box<dyn Error>> {
+    fn save_prompt(&self, prompt: &Prompt) -> Result<(), FileStorageError> {
         self.ensure_base_directory_exists()?;
 
         let file_path = self.base_path.join(format!("{}.toml", prompt.name()));
@@ -58,11 +97,13 @@ impl PromptStorage for FileStorage{
 }
 
 impl FileStorage {
-    fn ensure_base_directory_exists(&self) -> Result<(), Box<dyn Error>> {
+    fn ensure_base_directory_exists(&self) -> Result<(), FileStorageError> {
         if !self.base_path.exists() {
             create_dir_all(&self.base_path)?;
         } else if !self.base_path.is_dir() {
-            return Err("Base path is not a directory".into());
+            return Err(FileStorageError::InvalidBasePath(
+                self.base_path.display().to_string()
+            ));
         }
         Ok(())
     }
