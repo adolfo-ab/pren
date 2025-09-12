@@ -330,4 +330,263 @@ mod tests {
         let result = storage.save_prompt(&prompt);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_load_simple_prompt() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // First save a simple prompt
+        let original_prompt = Prompt::new_simple(
+            "load_test_simple".to_string(),
+            "This is a simple prompt for loading".to_string(),
+            vec!["test".to_string(), "simple".to_string()]
+        );
+        storage.save_prompt(&original_prompt).unwrap();
+
+        // Now load it back
+        let result = storage.load_prompt("load_test_simple");
+        assert!(result.is_ok());
+
+        let loaded_prompt = result.unwrap().unwrap();
+        assert_eq!(loaded_prompt.name(), "load_test_simple");
+        assert_eq!(loaded_prompt.content(), "This is a simple prompt for loading");
+        assert_eq!(loaded_prompt.tags(), &vec!["test".to_string(), "simple".to_string()]);
+
+        // Verify it's a simple prompt
+        match loaded_prompt {
+            Prompt::Simple { .. } => {},
+            _ => panic!("Expected Simple prompt variant"),
+        }
+    }
+
+    #[test]
+    fn test_load_template_prompt() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // First save a template prompt
+        let original_prompt = Prompt::new_template(
+            "load_test_template".to_string(),
+            "Hello {{name}}, this is {{topic}}".to_string(),
+            vec!["test".to_string(), "template".to_string()]
+        ).unwrap();
+        storage.save_prompt(&original_prompt).unwrap();
+
+        // Now load it back
+        let result = storage.load_prompt("load_test_template");
+        assert!(result.is_ok());
+
+        let loaded_prompt = result.unwrap().unwrap();
+        assert_eq!(loaded_prompt.name(), "load_test_template");
+        assert_eq!(loaded_prompt.content(), "Hello {{name}}, this is {{topic}}");
+        assert_eq!(loaded_prompt.tags(), &vec!["test".to_string(), "template".to_string()]);
+
+        // Verify it's a template prompt
+        match loaded_prompt {
+            Prompt::Template { .. } => {},
+            _ => panic!("Expected Template prompt variant"),
+        }
+    }
+
+    #[test]
+    fn test_load_prompt_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        let result = storage.load_prompt("nonexistent_prompt");
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            FileStorageError::PromptNotFound(path) => {
+                assert!(path.contains("nonexistent_prompt.toml"));
+            },
+            _ => panic!("Expected PromptNotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_load_prompt_invalid_toml() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Create a file with invalid TOML content
+        let file_path = temp_dir.path().join("invalid_toml.toml");
+        fs::write(file_path, "invalid toml content [[[").unwrap();
+
+        let result = storage.load_prompt("invalid_toml");
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            FileStorageError::DeserializationError(_) => {},
+            _ => panic!("Expected DeserializationError"),
+        }
+    }
+
+    #[test]
+    fn test_load_prompt_invalid_prompt_type() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Create a TOML file with invalid prompt_type
+        let invalid_toml = r#"
+            name = "invalid_type_test"
+            content = "Some content"
+            tags = ["test"]
+            type = "invalid_type"
+        "#;
+        let file_path = temp_dir.path().join("invalid_type_test.toml");
+        fs::write(file_path, invalid_toml).unwrap();
+
+        let result = storage.load_prompt("invalid_type_test");
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            FileStorageError::InvalidPromptType(prompt_type) => {
+                assert_eq!(prompt_type, "invalid_type");
+            },
+            _ => panic!("Expected InvalidPromptType error"),
+        }
+    }
+
+    #[test]
+    fn test_load_prompt_invalid_template_syntax() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Create a TOML file with template type but invalid template syntax
+        let invalid_template_toml = r#"
+            name = "invalid_template_syntax"
+            content = "This has invalid syntax {{unclosed"
+            tags = ["test"]
+            type = "template"
+        "#;
+        let file_path = temp_dir.path().join("invalid_template_syntax.toml");
+        fs::write(file_path, invalid_template_toml).unwrap();
+
+        let result = storage.load_prompt("invalid_template_syntax");
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            FileStorageError::ParseTemplateError(_) => {},
+            _ => panic!("Expected ParseTemplateError"),
+        }
+    }
+
+    #[test]
+    fn test_load_prompt_missing_fields() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Create a TOML file missing required fields
+        let incomplete_toml = r#"
+            name = "incomplete_test"
+            # missing content, tags, and prompt_type
+        "#;
+        let file_path = temp_dir.path().join("incomplete_test.toml");
+        fs::write(file_path, incomplete_toml).unwrap();
+
+        let result = storage.load_prompt("incomplete_test");
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            FileStorageError::DeserializationError(_) => {},
+            _ => panic!("Expected DeserializationError for missing fields"),
+        }
+    }
+
+    #[test]
+    fn test_load_prompt_empty_tags() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Save a prompt with no tags
+        let prompt = Prompt::new_simple(
+            "no_tags_test".to_string(),
+            "Content without tags".to_string(),
+            vec![]
+        );
+        storage.save_prompt(&prompt).unwrap();
+
+        // Load it back
+        let result = storage.load_prompt("no_tags_test");
+        assert!(result.is_ok());
+
+        let loaded_prompt = result.unwrap().unwrap();
+        assert_eq!(loaded_prompt.name(), "no_tags_test");
+        assert_eq!(loaded_prompt.content(), "Content without tags");
+        assert!(loaded_prompt.tags().is_empty());
+    }
+
+    #[test]
+    fn test_load_prompt_complex_template() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Save a complex template prompt
+        let complex_content = "Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal}}}} Today is {{date}}.";
+        let original_prompt = Prompt::new_template(
+            "complex_template_load".to_string(),
+            complex_content.to_string(),
+            vec!["complex".to_string(), "template".to_string(), "test".to_string()]
+        ).unwrap();
+        storage.save_prompt(&original_prompt).unwrap();
+
+        // Load it back
+        let result = storage.load_prompt("complex_template_load");
+        assert!(result.is_ok());
+
+        let loaded_prompt = result.unwrap().unwrap();
+        assert_eq!(loaded_prompt.name(), "complex_template_load");
+        assert_eq!(loaded_prompt.content(), complex_content);
+        assert_eq!(loaded_prompt.tags(), &vec!["complex".to_string(), "template".to_string(), "test".to_string()]);
+
+        // Verify it's a template prompt
+        match loaded_prompt {
+            Prompt::Template { .. } => {},
+            _ => panic!("Expected Template prompt variant"),
+        }
+    }
+
+    #[test]
+    fn test_load_prompt_special_characters() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage {
+            base_path: temp_dir.path().to_path_buf(),
+        };
+
+        // Save a prompt with special characters
+        let special_content = "Content with special chars: ñáéíóú, 中文, emoji 🚀, quotes \"'`";
+        let original_prompt = Prompt::new_simple(
+            "special_chars_test".to_string(),
+            special_content.to_string(),
+            vec!["special".to_string(), "unicode".to_string()]
+        );
+        storage.save_prompt(&original_prompt).unwrap();
+
+        // Load it back
+        let result = storage.load_prompt("special_chars_test");
+        assert!(result.is_ok());
+
+        let loaded_prompt = result.unwrap().unwrap();
+        assert_eq!(loaded_prompt.content(), special_content);
+    }
 }
