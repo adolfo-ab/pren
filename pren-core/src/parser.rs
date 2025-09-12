@@ -1,11 +1,30 @@
+//! # Template Parser
+//!
+//! This module provides parsing functionality for prompt templates.
+//!
+//! The parser handles template syntax with the following features:
+//! - Arguments: `{{variable_name}}`
+//! - Prompt references: `{{prompt:prompt_name}}`
+//! - Escaped literals: `{{{{literal_text}}}}`
+//!
+//! # Examples
+//!
+//! ```rust
+//! use pren_core::parser::parse_template;
+//!
+//! let input = "Hello {{name}}, welcome to {{prompt:greeting}}!";
+//! let result = parse_template(input);
+//! assert!(result.is_ok());
+//! ```
+
+use crate::prompt::{PromptTemplate, PromptTemplatePart};
+use nom::IResult;
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_while_m_n};
 use nom::combinator::{all_consuming, map, rest, verify};
-use nom::IResult;
-use nom::multi::{many0};
-use nom::Parser;
+use nom::multi::many0;
 use nom::sequence::delimited;
-use crate::prompt::{PromptTemplate, PromptTemplatePart};
 
 pub fn parse_template(input: &str) -> IResult<&str, PromptTemplate> {
     all_consuming(map(many0(parse_element), |parts| PromptTemplate { parts })).parse(input)
@@ -13,21 +32,24 @@ pub fn parse_template(input: &str) -> IResult<&str, PromptTemplate> {
 
 pub fn parse_element(input: &str) -> IResult<&str, PromptTemplatePart> {
     alt((
-        map(parse_escaped_literal, |text| PromptTemplatePart::Literal(text.to_string())),
-        map(parse_prompt_reference, |name| PromptTemplatePart::PromptReference(name.to_string())),
-        map(parse_argument, |name| PromptTemplatePart::Argument(name.to_string())),
-        map(parse_literal_text, |text| PromptTemplatePart::Literal(text.to_string())),
-    )).parse(input)
+        map(parse_escaped_literal, |text| {
+            PromptTemplatePart::Literal(text.to_string())
+        }),
+        map(parse_prompt_reference, |name| {
+            PromptTemplatePart::PromptReference(name.to_string())
+        }),
+        map(parse_argument, |name| {
+            PromptTemplatePart::Argument(name.to_string())
+        }),
+        map(parse_literal_text, |text| {
+            PromptTemplatePart::Literal(text.to_string())
+        }),
+    ))
+    .parse(input)
 }
 
 pub fn parse_literal_text(input: &str) -> IResult<&str, &str> {
-    verify(
-        alt((
-            take_until("{{"),
-            rest,
-        )),
-        |s: &&str| !s.is_empty(),
-    ).parse(input)
+    verify(alt((take_until("{{"), rest)), |s: &&str| !s.is_empty()).parse(input)
 }
 
 pub fn parse_argument(input: &str) -> IResult<&str, &str> {
@@ -44,11 +66,7 @@ pub fn parse_escaped_literal(input: &str) -> IResult<&str, &str> {
 
 fn identifier(input: &str) -> IResult<&str, &str> {
     // Limit identifiers to 1-64 characters with alphanumeric, dash, underscore
-    take_while_m_n(
-        1,
-        64,
-        |c: char| c.is_alphanumeric() || c == '-' || c == '_'
-    ).parse(input)
+    take_while_m_n(1, 64, |c: char| c.is_alphanumeric() || c == '-' || c == '_').parse(input)
 }
 
 #[cfg(test)]
@@ -122,7 +140,10 @@ mod tests {
     #[test]
     fn test_parse_invalid_argument() {
         let result = parse_argument("{{to/pic}} is the subject");
-        assert!(result.is_err(), "Expected parse to fail due to non-alphanumeric character");
+        assert!(
+            result.is_err(),
+            "Expected parse to fail due to non-alphanumeric character"
+        );
     }
 
     #[test]
@@ -153,7 +174,10 @@ mod tests {
     #[test]
     fn test_parse_invalid_prompt_reference() {
         let result = parse_prompt_reference("{{prompt:basic:prompt}} is the prompt");
-        assert!(result.is_err(), "Expected parse to fail due to non-alphanumeric character");
+        assert!(
+            result.is_err(),
+            "Expected parse to fail due to non-alphanumeric character"
+        );
     }
 
     #[test]
@@ -165,37 +189,61 @@ mod tests {
     #[test]
     fn test_parse_element_argument() {
         let result = parse_element("{{username}}");
-        assert_eq!(result, Ok(("", PromptTemplatePart::Argument(String::from("username")))));
+        assert_eq!(
+            result,
+            Ok(("", PromptTemplatePart::Argument(String::from("username"))))
+        );
     }
 
     #[test]
     fn test_parse_element_invalid_argument() {
         let result = parse_element("{{user&name}}");
-        assert!(result.is_err(), "Expected parse to fail due to non-alphanumeric character");
+        assert!(
+            result.is_err(),
+            "Expected parse to fail due to non-alphanumeric character"
+        );
     }
 
     #[test]
     fn test_parse_element_prompt_reference() {
         let result = parse_element("{{prompt:username}}");
-        assert_eq!(result, Ok(("", PromptTemplatePart::PromptReference(String::from("username")))));
+        assert_eq!(
+            result,
+            Ok((
+                "",
+                PromptTemplatePart::PromptReference(String::from("username"))
+            ))
+        );
     }
 
     #[test]
     fn test_parse_element_invalid_prompt_reference() {
         let result = parse_element("{{prompt:u$ername}}");
-        assert!(result.is_err(), "Expected parse to fail due to non-alphanumeric character");
+        assert!(
+            result.is_err(),
+            "Expected parse to fail due to non-alphanumeric character"
+        );
     }
 
     #[test]
     fn test_parse_element_literal() {
         let result = parse_element("username");
-        assert_eq!(result, Ok(("", PromptTemplatePart::Literal(String::from("username")))));
+        assert_eq!(
+            result,
+            Ok(("", PromptTemplatePart::Literal(String::from("username"))))
+        );
     }
 
     #[test]
     fn test_parse_element_escaped_literal() {
         let result = parse_element("{{{{hello{{username}}bye}}}}");
-        assert_eq!(result, Ok(("", PromptTemplatePart::Literal(String::from("hello{{username}}bye")))));
+        assert_eq!(
+            result,
+            Ok((
+                "",
+                PromptTemplatePart::Literal(String::from("hello{{username}}bye"))
+            ))
+        );
     }
 
     #[test]
@@ -269,15 +317,23 @@ mod tests {
             let id = "a".repeat(length);
             let input = format!("{{{{{}}}}}", id); // Changed to double braces
             let result = parse_argument(&input);
-            assert!(result.is_ok(), "{} character identifier should work. Error: {:?}", length, result.err());
+            assert!(
+                result.is_ok(),
+                "{} character identifier should work. Error: {:?}",
+                length,
+                result.err()
+            );
         }
 
         for length in [65, 100, 1000] {
             let id = "a".repeat(length);
             let input = format!("{{{{{}}}}}", id); // Changed to double braces
             let result = parse_argument(&input);
-            assert!(result.is_err(), "{} character identifier should fail", length);
+            assert!(
+                result.is_err(),
+                "{} character identifier should fail",
+                length
+            );
         }
     }
-
 }

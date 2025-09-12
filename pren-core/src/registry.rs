@@ -1,5 +1,13 @@
-use serde::{Deserialize, Serialize};
+//! # Prompt Registry
+//!
+//! This module defines the core traits and structures for prompt storage and management.
+//!
+//! The main components are:
+//! - [`PromptStorage`] trait - Defines the interface for storing and retrieving prompts
+//! - [`PromptFile`] struct - Represents the serialized format of prompts on disk
+
 use crate::prompt::Prompt;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PromptFile {
