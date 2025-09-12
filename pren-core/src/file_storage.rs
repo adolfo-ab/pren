@@ -82,7 +82,7 @@ impl Default for FileStorage {
 
 impl PromptStorage for FileStorage{
     type Error = FileStorageError;
-    
+
     fn save_prompt(&self, prompt: &Prompt) -> Result<(), FileStorageError> {
         self.ensure_base_directory_exists()?;
 
@@ -115,11 +115,7 @@ impl PromptStorage for FileStorage{
         let content = fs::read_to_string(file_path)?;
         let prompt_file: PromptFile = toml::from_str(&content)?;
 
-        let prompt = match prompt_file.prompt_type.as_str() {
-            "simple" => Prompt::new_simple(prompt_file.name, prompt_file.content, prompt_file.tags),
-            "template" => Prompt::new_template(prompt_file.name, prompt_file.content, prompt_file.tags)?,
-            _ => return Err(FileStorageError::InvalidPromptType(prompt_file.prompt_type))
-        };
+        let prompt = self.create_prompt_from_file(prompt_file)?;
 
         Ok(Some(prompt))
     }
@@ -128,23 +124,14 @@ impl PromptStorage for FileStorage{
         let mut prompts = Vec::new();
         
         // Walk through the base directory
-        for entry in WalkDir::new(&self.base_path)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file() && e.path().extension().map_or(false, |ext| ext == "toml"))
-        {
+        for entry in self.get_toml_files()? {
             let file_path = entry.path();
             
             // Read and parse the file
             let content = fs::read_to_string(file_path)?;
             let prompt_file: PromptFile = toml::from_str(&content)?;
             
-            // Convert to Prompt based on type
-            let prompt = match prompt_file.prompt_type.as_str() {
-                "simple" => Prompt::new_simple(prompt_file.name, prompt_file.content, prompt_file.tags),
-                "template" => Prompt::new_template(prompt_file.name, prompt_file.content, prompt_file.tags)?,
-                _ => return Err(FileStorageError::InvalidPromptType(prompt_file.prompt_type))
-            };
+            let prompt = self.create_prompt_from_file(prompt_file)?;
             
             prompts.push(prompt);
         }
@@ -156,11 +143,7 @@ impl PromptStorage for FileStorage{
         let mut prompts = Vec::new();
 
         // Walk through the base directory
-        for entry in WalkDir::new(&self.base_path)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file() && e.path().extension().map_or(false, |ext| ext == "toml"))
-        {
+        for entry in self.get_toml_files()? {
             let file_path = entry.path();
 
             // Read and parse the file
@@ -169,11 +152,7 @@ impl PromptStorage for FileStorage{
 
             // Check if any of the prompt's tags match any of the requested tags
             if prompt_file.tags.iter().any(|prompt_tag| tags.contains(prompt_tag)) {
-                let prompt = match prompt_file.prompt_type.as_str() {
-                    "simple" => Prompt::new_simple(prompt_file.name, prompt_file.content, prompt_file.tags),
-                    "template" => Prompt::new_template(prompt_file.name, prompt_file.content, prompt_file.tags)?,
-                    _ => return Err(FileStorageError::InvalidPromptType(prompt_file.prompt_type))
-                };
+                let prompt = self.create_prompt_from_file(prompt_file)?;
                 prompts.push(prompt);
             }
         }
@@ -202,6 +181,24 @@ impl FileStorage {
             ));
         }
         Ok(())
+    }
+
+    fn create_prompt_from_file(&self, prompt_file: PromptFile) -> Result<Prompt, FileStorageError> {
+        let prompt = match prompt_file.prompt_type.as_str() {
+            "simple" => Prompt::new_simple(prompt_file.name, prompt_file.content, prompt_file.tags),
+            "template" => Prompt::new_template(prompt_file.name, prompt_file.content, prompt_file.tags)?,
+            _ => return Err(FileStorageError::InvalidPromptType(prompt_file.prompt_type))
+        };
+        Ok(prompt)
+    }
+
+    fn get_toml_files(&self) -> Result<Vec<walkdir::DirEntry>, FileStorageError> {
+        let entries = WalkDir::new(&self.base_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file() && e.path().extension().map_or(false, |ext| ext == "toml"))
+            .collect();
+        Ok(entries)
     }
 }
 

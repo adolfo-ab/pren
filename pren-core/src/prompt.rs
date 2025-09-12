@@ -412,13 +412,13 @@ mod tests {
     }
 
     struct MockStorage {
-        prompts: std::collections::HashMap<String, Prompt>,
+        prompts: HashMap<String, Prompt>,
     }
     
     impl MockStorage {
         fn new() -> Self {
             MockStorage {
-                prompts: std::collections::HashMap::new(),
+                prompts: HashMap::new(),
             }
         }
         
@@ -459,7 +459,7 @@ mod tests {
             vec![]
         );
         
-        let mut args = std::collections::HashMap::new();
+        let mut args = HashMap::new();
         args.insert("name".to_string(), "World".to_string());
         
         let storage = MockStorage::new();
@@ -475,7 +475,7 @@ mod tests {
             vec![]
         ).expect("Failed to create template prompt");
         
-        let mut args = std::collections::HashMap::new();
+        let mut args = HashMap::new();
         args.insert("name".to_string(), "World".to_string());
         
         let storage = MockStorage::new();
@@ -491,7 +491,7 @@ mod tests {
             vec![]
         ).expect("Failed to create template prompt");
         
-        let args = std::collections::HashMap::new();
+        let args = HashMap::new();
         
         let storage = MockStorage::new();
         let result = template_prompt.render(&args, &storage);
@@ -507,7 +507,7 @@ mod tests {
             vec![]
         ).expect("Failed to create template prompt");
         
-        let mut args = std::collections::HashMap::new();
+        let mut args = HashMap::new();
         args.insert("name".to_string(), "Alice".to_string());
         args.insert("age".to_string(), "30".to_string());
         
@@ -524,7 +524,7 @@ mod tests {
             vec![]
         ).expect("Failed to create template prompt");
         
-        let mut args = std::collections::HashMap::new();
+        let mut args = HashMap::new();
         args.insert("age".to_string(), "30".to_string());
         
         let storage = MockStorage::new();
@@ -549,7 +549,7 @@ mod tests {
         let mut storage = MockStorage::new();
         storage.add_prompt(greeting_prompt);
         
-        let mut args = std::collections::HashMap::new();
+        let mut args = HashMap::new();
         args.insert("name".to_string(), "Alice".to_string());
         
         let rendered = main_prompt.render(&args, &storage).expect("Failed to render template prompt with reference");
