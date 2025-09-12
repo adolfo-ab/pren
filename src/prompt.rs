@@ -2,8 +2,9 @@ use std::error::Error;
 use std::collections::HashMap;
 use nom::Err as NomErr;
 use crate::parser::parse_template;
+use crate::registry::PromptStorage;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PromptBase {
     pub name: String,
     pub content: String,
@@ -36,7 +37,7 @@ impl std::fmt::Display for RenderTemplateError {
 
 impl Error for RenderTemplateError {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Prompt {
     Simple{
         base: PromptBase,
@@ -123,10 +124,10 @@ impl Prompt {
         }
     }
 
-    pub fn render(&self, arguments: &HashMap<String, String>) -> Result<String, RenderTemplateError> {
+    pub fn render(&self, arguments: &HashMap<String, String>, storage: &dyn PromptStorage) -> Result<String, RenderTemplateError> {
         match self {
             Prompt::Simple { base } => Ok(base.content.clone()),
-            Prompt::Template { template, .. } => template.render(arguments),
+            Prompt::Template { template, .. } => template.render(arguments, storage),
         }
     }
 }
@@ -152,7 +153,7 @@ impl PromptTemplate {
         }).collect()
     }
 
-    pub fn render(&self, arguments: &HashMap<String, String>) -> Result<String, RenderTemplateError> {
+    pub fn render(&self, arguments: &HashMap<String, String>, storage: &dyn PromptStorage) -> Result<String, RenderTemplateError> {
         let mut result = String::new();
         
         for part in &self.parts {
@@ -167,9 +168,23 @@ impl PromptTemplate {
                     }
                 },
                 PromptTemplatePart::PromptReference(name) => {
-                    // For now, we'll just add a placeholder for prompt references
-                    // In a full implementation, this would need to resolve the referenced prompt
-                    result.push_str(&format!("{{prompt:{}}}", name));
+                    match storage.get_prompt(name) {
+                        Ok(Some(prompt)) => {
+                            // Render the referenced prompt with the same arguments
+                            match prompt.render(arguments, storage) {
+                                Ok(rendered) => result.push_str(&rendered),
+                                Err(e) => return Err(RenderTemplateError {
+                                    message: format!("Failed to render referenced prompt '{}': {}", name, e.message),
+                                }),
+                            }
+                        },
+                        Ok(None) => return Err(RenderTemplateError {
+                            message: format!("Referenced prompt not found: {}", name),
+                        }),
+                        Err(e) => return Err(RenderTemplateError {
+                            message: format!("Error retrieving referenced prompt '{}': {}", name, e),
+                        }),
+                    }
                 },
             }
         }
@@ -328,7 +343,6 @@ mod tests {
 
     #[test]
     fn test_arguments_and_prompt_references_combined() {
-        // Test with a complex template that has both arguments and prompt references
         let complex_prompt = Prompt::new_template(
             "complex".to_string(),
             "Dear {{name}}, {{prompt:greeting}} {{{{literal_braces}}}} Best regards, {{signature}} from {{prompt:company}}".to_string(),
@@ -354,7 +368,6 @@ mod tests {
             vec![]
         );
         
-        // For simple prompts, template() should return None
         assert!(simple_prompt.template().is_none());
     }
 
@@ -366,40 +379,71 @@ mod tests {
             vec!["test".to_string()]
         ).expect("Failed to create template prompt");
 
-        // For template prompts, template() should return Some(&PromptTemplate)
         let template = template_prompt.template().expect("Expected Some(&PromptTemplate)");
         
-        // Verify that the template has the expected parts
         assert_eq!(5, template.parts.len());
         
-        // Check first part is a literal
         match &template.parts[0] {
             PromptTemplatePart::Literal(text) => assert_eq!("Hello ", text),
             _ => panic!("Expected Literal part"),
         }
         
-        // Check second part is an argument
         match &template.parts[1] {
             PromptTemplatePart::Argument(arg) => assert_eq!("name", arg),
             _ => panic!("Expected Argument part"),
         }
         
-        // Check third part is a literal
         match &template.parts[2] {
             PromptTemplatePart::Literal(text) => assert_eq!(", welcome to ", text),
             _ => panic!("Expected Literal part"),
         }
         
-        // Check fourth part is a prompt reference
         match &template.parts[3] {
             PromptTemplatePart::PromptReference(prompt_name) => assert_eq!("greeting", prompt_name),
             _ => panic!("Expected PromptReference part"),
         }
         
-        // Check fifth part is a literal
         match &template.parts[4] {
             PromptTemplatePart::Literal(text) => assert_eq!("!", text),
             _ => panic!("Expected Literal part"),
+        }
+    }
+
+    struct MockStorage {
+        prompts: std::collections::HashMap<String, Prompt>,
+    }
+    
+    impl MockStorage {
+        fn new() -> Self {
+            MockStorage {
+                prompts: std::collections::HashMap::new(),
+            }
+        }
+        
+        fn add_prompt(&mut self, prompt: Prompt) {
+            self.prompts.insert(prompt.name().to_string(), prompt);
+        }
+    }
+    
+    impl PromptStorage for MockStorage {
+        fn save_prompt(&self, _prompt: &Prompt) -> Result<(), crate::file_storage::FileStorageError> {
+            Ok(())
+        }
+        
+        fn get_prompt(&self, name: &str) -> Result<Option<Prompt>, crate::file_storage::FileStorageError> {
+            Ok(self.prompts.get(name).cloned())
+        }
+        
+        fn get_prompts(&self) -> Result<Vec<Prompt>, crate::file_storage::FileStorageError> {
+            Ok(self.prompts.values().cloned().collect())
+        }
+        
+        fn delete_prompt(&self, _name: &str) -> Result<(), crate::file_storage::FileStorageError> {
+            Ok(())
+        }
+        
+        fn get_prompts_by_tag(&self, _tags: &[String]) -> Result<Vec<Prompt>, crate::file_storage::FileStorageError> {
+            Ok(vec![])
         }
     }
 
@@ -414,7 +458,8 @@ mod tests {
         let mut args = std::collections::HashMap::new();
         args.insert("name".to_string(), "World".to_string());
         
-        let rendered = simple_prompt.render(&args).expect("Failed to render simple prompt");
+        let storage = MockStorage::new();
+        let rendered = simple_prompt.render(&args, &storage).expect("Failed to render simple prompt");
         assert_eq!("This is a simple prompt", rendered);
     }
 
@@ -422,28 +467,30 @@ mod tests {
     fn test_render_template_prompt() {
         let template_prompt = Prompt::new_template(
             "template".to_string(),
-            "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
+            "Hello {{name}}, welcome!".to_string(),
             vec![]
         ).expect("Failed to create template prompt");
         
         let mut args = std::collections::HashMap::new();
         args.insert("name".to_string(), "World".to_string());
         
-        let rendered = template_prompt.render(&args).expect("Failed to render template prompt");
-        assert_eq!("Hello World, welcome to {prompt:greeting}!", rendered);
+        let storage = MockStorage::new();
+        let rendered = template_prompt.render(&args, &storage).expect("Failed to render template prompt");
+        assert_eq!("Hello World, welcome!", rendered);
     }
 
     #[test]
     fn test_render_template_prompt_missing_argument() {
         let template_prompt = Prompt::new_template(
             "template".to_string(),
-            "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
+            "Hello {{name}}, welcome!".to_string(),
             vec![]
         ).expect("Failed to create template prompt");
         
         let args = std::collections::HashMap::new();
         
-        let result = template_prompt.render(&args);
+        let storage = MockStorage::new();
+        let result = template_prompt.render(&args, &storage);
         assert!(result.is_err());
         assert_eq!("Missing argument: name", result.unwrap_err().message);
     }
@@ -460,7 +507,8 @@ mod tests {
         args.insert("name".to_string(), "Alice".to_string());
         args.insert("age".to_string(), "30".to_string());
         
-        let rendered = template_prompt.render(&args).expect("Failed to render template prompt");
+        let storage = MockStorage::new();
+        let rendered = template_prompt.render(&args, &storage).expect("Failed to render template prompt");
         assert_eq!("Dear Alice, you are 30 years old!", rendered);
     }
 
@@ -475,7 +523,49 @@ mod tests {
         let mut args = std::collections::HashMap::new();
         args.insert("age".to_string(), "30".to_string());
         
-        let rendered = template_prompt.render(&args).expect("Failed to render template prompt");
+        let storage = MockStorage::new();
+        let rendered = template_prompt.render(&args, &storage).expect("Failed to render template prompt");
         assert_eq!("Hello {{name}}, you are 30 years old!", rendered);
+    }
+
+    #[test]
+    fn test_render_template_with_prompt_reference() {
+        let greeting_prompt = Prompt::new_simple(
+            "greeting".to_string(),
+            "Hello!".to_string(),
+            vec![]
+        );
+        
+        let main_prompt = Prompt::new_template(
+            "main".to_string(),
+            "{{prompt:greeting}} Nice to meet you {{name}}!".to_string(),
+            vec![]
+        ).expect("Failed to create template prompt");
+        
+        let mut storage = MockStorage::new();
+        storage.add_prompt(greeting_prompt);
+        
+        let mut args = std::collections::HashMap::new();
+        args.insert("name".to_string(), "Alice".to_string());
+        
+        let rendered = main_prompt.render(&args, &storage).expect("Failed to render template prompt with reference");
+        assert_eq!("Hello! Nice to meet you Alice!", rendered);
+    }
+
+    #[test]
+    fn test_render_template_with_missing_prompt_reference() {
+        let template_prompt = Prompt::new_template(
+            "template".to_string(),
+            "Message: {{prompt:missing}}".to_string(),
+            vec![]
+        ).expect("Failed to create template prompt");
+        
+        let mut args = HashMap::new();
+        args.insert("name".to_string(), "Alice".to_string());
+        
+        let storage = MockStorage::new();
+        let result = template_prompt.render(&args, &storage);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("Referenced prompt not found"));
     }
 }
