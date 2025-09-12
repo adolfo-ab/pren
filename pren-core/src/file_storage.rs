@@ -109,8 +109,9 @@ impl From<ParseTemplateError> for FileStorageError {
 
 /// A local file storage for Prompts.
 ///
-/// Implements the PromptStorage trait.
+/// Saves prompts as TOML files in the specified directory.
 pub struct FileStorage {
+    /// The base directory where prompt files are stored.
     pub base_path: PathBuf,
 }
 
@@ -168,8 +169,9 @@ impl PromptStorage for FileStorage {
     ///
     /// # Returns
     ///
-    /// * `Option<Prompt>` - If the prompt is found.
-    /// * `FileStorageError::PromptNotFound` - If the prompt cannot be found.
+    /// * `Ok(Some(Prompt))` - If the prompt is found.
+    /// * `Ok(None)` - If no prompt with that name exists.
+    /// * `FileStorageError` - If there was an error reading or parsing the prompt.
     fn get_prompt(&self, name: &str) -> Result<Option<Prompt>, FileStorageError> {
         let file_path = self.base_path.join(format!("{}.toml", name));
         if !file_path.exists() {
@@ -186,6 +188,12 @@ impl PromptStorage for FileStorage {
         Ok(Some(prompt))
     }
 
+    /// Gets all prompts stored in the base directory.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<Prompt>)` - A vector containing all prompts found in the storage.
+    /// * `FileStorageError` - If there was an error reading or parsing any prompt.
     fn get_prompts(&self) -> Result<Vec<Prompt>, FileStorageError> {
         let mut prompts = Vec::new();
 
@@ -205,6 +213,18 @@ impl PromptStorage for FileStorage {
         Ok(prompts)
     }
 
+    /// Deletes a prompt given its name.
+    ///
+    /// If no prompt with that name exists, this function succeeds silently.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the prompt to be deleted.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the prompt was successfully deleted or didn't exist.
+    /// * `FileStorageError` - If there was an error deleting the file.
     fn delete_prompt(&self, name: &str) -> Result<(), FileStorageError> {
         let file_path = self.base_path.join(format!("{}.toml", name));
         if !file_path.exists() {
@@ -215,6 +235,16 @@ impl PromptStorage for FileStorage {
         Ok(())
     }
 
+    /// Gets all prompts that have any of the specified tags.
+    ///
+    /// # Arguments
+    ///
+    /// * `tags` - A slice of tag names to search for.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<Prompt>)` - A vector containing all prompts that match any of the tags.
+    /// * `FileStorageError` - If there was an error reading or parsing any prompt.
     fn get_prompts_by_tag(&self, tags: &[String]) -> Result<Vec<Prompt>, FileStorageError> {
         let mut prompts = Vec::new();
 

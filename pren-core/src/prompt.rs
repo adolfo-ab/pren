@@ -75,30 +75,53 @@ impl std::fmt::Display for RenderTemplateError {
 
 impl Error for RenderTemplateError {}
 
+/// The main prompt type, which can be either a simple prompt or a template prompt.
 #[derive(Debug, Clone)]
 pub enum Prompt {
+    /// A simple prompt with plain text content.
     Simple {
+        /// The base prompt data.
         base: PromptBase,
     },
+    /// A template prompt with placeholders that can be filled at render time.
     Template {
+        /// The base prompt data.
         base: PromptBase,
+        /// The parsed template structure.
         template: PromptTemplate,
     },
 }
 
+/// A part of a parsed template.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PromptTemplatePart {
+    /// Literal text that is rendered as-is.
     Literal(String),
+    /// An argument placeholder that gets replaced with a value at render time.
     Argument(String),
+    /// A reference to another prompt that gets rendered at render time.
     PromptReference(String),
 }
 
+/// A parsed template with parts that can be literals, arguments, or prompt references.
 #[derive(Debug, Clone)]
 pub struct PromptTemplate {
+    /// The parts that make up the template.
     pub parts: Vec<PromptTemplatePart>,
 }
 
 impl Prompt {
+    /// Creates a new simple prompt.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the prompt.
+    /// * `content` - The content of the prompt.
+    /// * `tags` - A vector of tags associated with the prompt.
+    ///
+    /// # Returns
+    ///
+    /// A new `Prompt::Simple` variant.
     pub fn new_simple(name: String, content: String, tags: Vec<String>) -> Prompt {
         Prompt::Simple {
             base: PromptBase {
@@ -109,6 +132,18 @@ impl Prompt {
         }
     }
 
+    /// Creates a new template prompt.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the prompt.
+    /// * `content` - The content of the prompt with template syntax.
+    /// * `tags` - A vector of tags associated with the prompt.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Prompt)` - A new `Prompt::Template` variant.
+    /// * `Err(ParseTemplateError)` - If the template syntax is invalid.
     pub fn new_template(
         name: String,
         content: String,
@@ -174,6 +209,21 @@ impl Prompt {
         }
     }
 
+    /// Renders a prompt with the given arguments.
+    ///
+    /// For simple prompts, this returns the content as-is.
+    /// For template prompts, this substitutes placeholders with the provided values
+    /// and resolves prompt references using the provided storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `arguments` - A map of argument names to values for template substitution.
+    /// * `storage` - A storage implementation for resolving prompt references.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(String)` - The rendered prompt content.
+    /// * `Err(RenderTemplateError)` - If there was an error during rendering.
     pub fn render<S: PromptStorage>(
         &self,
         arguments: &HashMap<String, String>,

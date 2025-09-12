@@ -26,6 +26,16 @@ use nom::combinator::{all_consuming, map, rest, verify};
 use nom::multi::many0;
 use nom::sequence::delimited;
 
+/// Parses a template string into a PromptTemplate.
+///
+/// # Arguments
+///
+/// * `input` - The template string to parse.
+///
+/// # Returns
+///
+/// * `Ok((remaining, template))` - The parsed template.
+/// * `Err` - If parsing fails.
 pub fn parse_template(input: &str) -> IResult<&str, PromptTemplate> {
     all_consuming(map(many0(parse_element), |parts| PromptTemplate { parts })).parse(input)
 }
@@ -52,14 +62,44 @@ pub fn parse_literal_text(input: &str) -> IResult<&str, &str> {
     verify(alt((take_until("{{"), rest)), |s: &&str| !s.is_empty()).parse(input)
 }
 
+/// Parses an argument placeholder (e.g., `{{name}}`).
+///
+/// # Arguments
+///
+/// * `input` - The input string to parse.
+///
+/// # Returns
+///
+/// * `Ok((remaining, name))` - The parsed argument name.
+/// * `Err` - If parsing fails.
 pub fn parse_argument(input: &str) -> IResult<&str, &str> {
     delimited(tag("{{"), identifier, tag("}}")).parse(input)
 }
 
+/// Parses a prompt reference (e.g., `{{prompt:name}}`).
+///
+/// # Arguments
+///
+/// * `input` - The input string to parse.
+///
+/// # Returns
+///
+/// * `Ok((remaining, name))` - The parsed prompt reference name.
+/// * `Err` - If parsing fails.
 pub fn parse_prompt_reference(input: &str) -> IResult<&str, &str> {
     delimited(tag("{{prompt:"), identifier, tag("}}")).parse(input)
 }
 
+/// Parses an escaped literal (e.g., `{{{{text}}}}`).
+///
+/// # Arguments
+///
+/// * `input` - The input string to parse.
+///
+/// # Returns
+///
+/// * `Ok((remaining, text))` - The parsed literal text.
+/// * `Err` - If parsing fails.
 pub fn parse_escaped_literal(input: &str) -> IResult<&str, &str> {
     delimited(tag("{{{{"), take_until("}}}}"), tag("}}}}")).parse(input)
 }
