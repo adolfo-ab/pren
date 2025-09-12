@@ -215,8 +215,6 @@ impl PromptStorage for FileStorage {
 
     /// Deletes a prompt given its name.
     ///
-    /// If no prompt with that name exists, this function succeeds silently.
-    ///
     /// # Arguments
     ///
     /// * `name` - The name of the prompt to be deleted.
@@ -224,11 +222,13 @@ impl PromptStorage for FileStorage {
     /// # Returns
     ///
     /// * `Ok(())` - If the prompt was successfully deleted or didn't exist.
-    /// * `FileStorageError` - If there was an error deleting the file.
+    /// * `FileStorageError` - If there was an error deleting the file or the file didn't exist.
     fn delete_prompt(&self, name: &str) -> Result<(), FileStorageError> {
         let file_path = self.base_path.join(format!("{}.toml", name));
         if !file_path.exists() {
-            return Ok(());
+            return Err(FileStorageError::PromptNotFound(
+                file_path.display().to_string(),
+            ));
         }
 
         fs::remove_file(file_path)?;
@@ -801,7 +801,7 @@ mod tests {
 
         // Try to delete a non-existent prompt (should succeed)
         let result = storage.delete_prompt("nonexistent");
-        assert!(result.is_ok());
+        assert!(result.is_err());
     }
 
     #[test]
