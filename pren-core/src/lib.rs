@@ -33,7 +33,7 @@
 //! storage.save_prompt(&prompt).unwrap();
 //! ```
 
-mod file_storage;
 mod parser;
+pub mod file_storage;
 pub mod prompt;
 pub mod registry;

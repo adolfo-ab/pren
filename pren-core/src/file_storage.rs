@@ -118,7 +118,7 @@ pub struct FileStorage {
 impl Default for FileStorage {
     fn default() -> Self {
         Self {
-            base_path: PathBuf::from("./prompts"),
+            base_path: PathBuf::from("~/pren-prompts"),
         }
     }
 }
