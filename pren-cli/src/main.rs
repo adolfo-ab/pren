@@ -32,7 +32,7 @@ enum Commands {
         name: String,
         #[arg(short = 'c', long)]
         content: String,
-        #[arg(short = 't', long)]
+        #[arg(short = 't', long, value_delimiter = ',')]
         tags: Vec<String>,
         #[arg(short = 's', long)]
         prompt_type: String,
@@ -63,7 +63,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             match _storage.get_prompt(name) {
                 Ok(Some(p)) => {
                     if !*overwrite {
-                         return Ok(());
+                        eprintln!("Error: Prompt '{}' already exists. Use --overwrite to replace it.", name);
+                        return Err(format!("Prompt '{}' already exists", name).into());
                     }
                 }
                 _ => {},
