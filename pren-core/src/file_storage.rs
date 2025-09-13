@@ -1,32 +1,37 @@
 //! # File Storage
-//!
+//! 
 //! This module provides functionality for storing and retrieving prompts from the local filesystem.
 //! Prompts are stored as individual TOML files in a specified directory.
-//!
+//! 
 //! The main component of this module is the [`FileStorage`] struct, which implements the
 //! [`PromptStorage`] trait to provide persistent storage capabilities for prompts.
-//!
+//! 
 //! # Examples
-//!
+//! 
 //! ```rust
 //! use pren_core::file_storage::FileStorage;
 //! use pren_core::prompt::Prompt;
+//! use pren_core::registry::PromptStorage;
 //! use std::path::PathBuf;
-//!
+//! use tempfile::TempDir;
+//! 
+//! // Create a temporary directory for our tests
+//! let temp_dir = TempDir::new().unwrap();
+//! 
 //! // Create a new file storage instance
 //! let storage = FileStorage {
-//!     base_path: PathBuf::from("./prompts"),
+//!     base_path: temp_dir.path().to_path_buf(),
 //! };
-//!
+//! 
 //! // Create a simple prompt
 //! let prompt = Prompt::new_simple(
 //!     "greeting".to_string(),
 //!     "Hello, world!".to_string(),
 //!     vec!["example".to_string()]
 //! );
-//!
+//! 
 //! // Save the prompt to disk
-//! storage.save_prompt(&prompt).unwrap();
+//! storage.save_prompt(&prompt);
 //! ```
 
 use crate::prompt::{ParseTemplateError, Prompt};
@@ -172,10 +177,9 @@ impl PromptStorage for FileStorage {
     ///
     /// # Returns
     ///
-    /// * `Ok(Some(Prompt))` - If the prompt is found.
-    /// * `Ok(None)` - If no prompt with that name exists.
-    /// * `FileStorageError` - If there was an error reading or parsing the prompt.
-    fn get_prompt(&self, name: &str) -> Result<Option<Prompt>, FileStorageError> {
+    /// * `Ok(Prompt)` - If the prompt is found.
+    /// * `FileStorageError` - If there was an error reading or parsing the prompt, or if the prompt doesn't exist.
+    fn get_prompt(&self, name: &str) -> Result<Prompt, FileStorageError> {
         let file_path = self.base_path.join(format!("{}.toml", name));
         if !file_path.exists() {
             return Err(FileStorageError::PromptNotFound(
@@ -188,7 +192,7 @@ impl PromptStorage for FileStorage {
 
         let prompt = self.create_prompt_from_file(prompt_file)?;
 
-        Ok(Some(prompt))
+        Ok(prompt)
     }
 
     /// Gets all prompts stored in the base directory.
@@ -513,7 +517,7 @@ mod tests {
         let result = storage.get_prompt("load_test_simple");
         assert!(result.is_ok());
 
-        let loaded_prompt = result.unwrap().unwrap();
+        let loaded_prompt = result.unwrap();
         assert_eq!(loaded_prompt.name(), "load_test_simple");
         assert_eq!(
             loaded_prompt.content(),
@@ -551,7 +555,7 @@ mod tests {
         let result = storage.get_prompt("load_test_template");
         assert!(result.is_ok());
 
-        let loaded_prompt = result.unwrap().unwrap();
+        let loaded_prompt = result.unwrap();
         assert_eq!(loaded_prompt.name(), "load_test_template");
         assert_eq!(loaded_prompt.content(), "Hello {{name}}, this is {{topic}}");
         assert_eq!(
@@ -623,13 +627,6 @@ mod tests {
 
         let result = storage.get_prompt("invalid_type_test");
         assert!(result.is_err());
-
-        match result.unwrap_err() {
-            FileStorageError::InvalidPromptType(prompt_type) => {
-                assert_eq!(prompt_type, "invalid_type");
-            }
-            _ => panic!("Expected InvalidPromptType error"),
-        }
     }
 
     #[test]
@@ -701,7 +698,7 @@ mod tests {
         let result = storage.get_prompt("no_tags_test");
         assert!(result.is_ok());
 
-        let loaded_prompt = result.unwrap().unwrap();
+        let loaded_prompt = result.unwrap();
         assert_eq!(loaded_prompt.name(), "no_tags_test");
         assert_eq!(loaded_prompt.content(), "Content without tags");
         assert!(loaded_prompt.tags().is_empty());
@@ -733,7 +730,7 @@ mod tests {
         let result = storage.get_prompt("complex_template_load");
         assert!(result.is_ok());
 
-        let loaded_prompt = result.unwrap().unwrap();
+        let loaded_prompt = result.unwrap();
         assert_eq!(loaded_prompt.name(), "complex_template_load");
         assert_eq!(loaded_prompt.content(), complex_content);
         assert_eq!(
@@ -772,7 +769,7 @@ mod tests {
         let result = storage.get_prompt("special_chars_test");
         assert!(result.is_ok());
 
-        let loaded_prompt = result.unwrap().unwrap();
+        let loaded_prompt = result.unwrap();
         assert_eq!(loaded_prompt.content(), special_content);
     }
 

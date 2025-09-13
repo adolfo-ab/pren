@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 pren-core = { path = "../pren-core"}
 clap = { version = "4.5.47", features = ["derive"] }
+arboard = "3.6.1"

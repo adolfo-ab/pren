@@ -34,7 +34,12 @@ pub trait PromptStorage {
     fn save_prompt(&self, prompt: &Prompt) -> Result<(), Self::Error>;
     
     /// Retrieves a prompt by name.
-    fn get_prompt(&self, name: &str) -> Result<Option<Prompt>, Self::Error>;
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Prompt)` - If the prompt is found.
+    /// * `Err(Self::Error)` - If there was an error reading or parsing the prompt, or if the prompt doesn't exist.
+    fn get_prompt(&self, name: &str) -> Result<Prompt, Self::Error>;
     
     /// Retrieves all prompts.
     fn get_prompts(&self) -> Result<Vec<Prompt>, Self::Error>;

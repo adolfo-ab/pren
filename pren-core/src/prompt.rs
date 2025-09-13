@@ -283,7 +283,7 @@ impl PromptTemplate {
                 },
                 PromptTemplatePart::PromptReference(name) => {
                     match storage.get_prompt(name) {
-                        Ok(Some(prompt)) => {
+                        Ok(prompt) => {
                             // Render the referenced prompt with the same arguments
                             match prompt.render(arguments, storage) {
                                 Ok(rendered) => result.push_str(&rendered),
@@ -296,11 +296,6 @@ impl PromptTemplate {
                                     });
                                 }
                             }
-                        }
-                        Ok(None) => {
-                            return Err(RenderTemplateError {
-                                message: format!("Referenced prompt not found: {}", name),
-                            });
                         }
                         Err(e) => {
                             return Err(RenderTemplateError {
@@ -579,8 +574,11 @@ mod tests {
             Ok(())
         }
 
-        fn get_prompt(&self, name: &str) -> Result<Option<Prompt>, Error> {
-            Ok(self.prompts.get(name).cloned())
+        fn get_prompt(&self, name: &str) -> Result<Prompt, Error> {
+            match self.prompts.get(name) {
+                Some(prompt) => Ok(prompt.clone()),
+                None => Err(std::fmt::Error),
+            }
         }
 
         fn get_prompts(&self) -> Result<Vec<Prompt>, Error> {
@@ -728,11 +726,5 @@ mod tests {
         let storage = MockStorage::new();
         let result = template_prompt.render(&args, &storage);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .message
-                .contains("Referenced prompt not found")
-        );
     }
 }

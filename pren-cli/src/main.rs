@@ -1,10 +1,10 @@
 mod config;
 
+use arboard::Clipboard;
 use crate::config::initialize_storage;
 use clap::{Parser, Subcommand};
+use std::collections::HashMap;
 use std::error::Error;
-use pren_core::file_storage;
-use pren_core::file_storage::FileStorage;
 use pren_core::prompt::Prompt;
 use pren_core::registry::PromptStorage;
 
@@ -42,16 +42,22 @@ enum Commands {
     Get {
         #[arg(short = 'n', long)]
         name: String,
-        #[arg(short = 'a', long)]
-        args: Vec<String>,
-        #[arg(short = 'c', long)]
-        copy: bool,
+        #[arg(short = 'a', long, value_parser = parse_key_val, value_delimiter = ',')]
+        args: Vec<(String, String)>,
     },
     List,
     Delete {
         #[arg(short = 'n', long)]
         name: String,
     },
+}
+
+/// Parse a single key-value pair
+fn parse_key_val(s: &str) -> Result<(String, String), String> {
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{}`", s))?;
+    Ok((s[..pos].to_string(), s[pos + 1..].to_string()))
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -61,13 +67,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     match &args.cmd {
         Commands::Add { name, content, prompt_type,  tags, overwrite} => {
             match _storage.get_prompt(name) {
-                Ok(Some(p)) => {
+                Ok(p) => {
                     if !*overwrite {
                         eprintln!("Error: Prompt '{}' already exists. Use --overwrite to replace it.", name);
                         return Err(format!("Prompt '{}' already exists", name).into());
                     }
                 }
-                _ => {},
+                Err(_) => {},
             };
             match prompt_type.as_str() {
                 "simple" => Ok(_storage.save_prompt(&Prompt::new_simple(name.to_string(), content.to_string(), tags.clone()))?),
@@ -75,6 +81,27 @@ fn main() -> Result<(), Box<dyn Error>> {
                 _ => Err("Invalid prompt type, must be 'simple' or 'template'".into())
             }
         }
-        _ => Ok(()),
+        Commands::Get { name, args: kv_args } => {
+            match _storage.get_prompt(name) {
+                Ok(prompt) => {
+                    let mut clipboard = Clipboard::new()?;
+                    let args_map: HashMap<String, String> = kv_args.iter().cloned().collect();
+                    let rendered_prompt = prompt.render(&args_map, &_storage)?;
+                    println!("{}", rendered_prompt);
+                    clipboard.set_text(rendered_prompt)?;
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("Error retrieving prompt '{}': {}", name, e);
+                    Err(e.into())
+                }
+            }
+        }
+        Commands::List => {
+            todo!()
+        }
+        Commands::Delete { name } => {
+            todo!()
+        }
     }
 }
