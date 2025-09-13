@@ -613,7 +613,7 @@ mod tests {
             name = "invalid_type_test"
             content = "Some content"
             tags = ["test"]
-            type = "invalid_type"
+            prompt_ty pe = "invalid_type"
         "#;
         let file_path = temp_dir.path().join("invalid_type_test.toml");
         fs::write(file_path, invalid_toml).unwrap();
@@ -641,7 +641,7 @@ mod tests {
             name = "invalid_template_syntax"
             content = "This has invalid syntax {{unclosed"
             tags = ["test"]
-            type = "template"
+            prompt_type = "template"
         "#;
         let file_path = temp_dir.path().join("invalid_template_syntax.toml");
         fs::write(file_path, invalid_template_toml).unwrap();

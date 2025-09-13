@@ -17,7 +17,6 @@ pub struct PromptFile {
     /// Tags associated with the prompt.
     pub tags: Vec<String>,
     /// The type of prompt ("simple" or "template").
-    #[serde(rename = "type")]
     pub prompt_type: String,
     /// The content of the prompt.
     pub content: String,

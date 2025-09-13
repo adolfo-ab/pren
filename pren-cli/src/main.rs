@@ -3,6 +3,9 @@ mod config;
 use crate::config::initialize_storage;
 use clap::{Parser, Subcommand};
 use std::error::Error;
+use pren_core::file_storage;
+use pren_core::file_storage::FileStorage;
+use pren_core::prompt::Prompt;
 use pren_core::registry::PromptStorage;
 
 #[derive(Parser, Debug)]
@@ -31,6 +34,8 @@ enum Commands {
         content: String,
         #[arg(short = 't', long)]
         tags: Vec<String>,
+        #[arg(short = 's', long)]
+        prompt_type: String,
         #[arg(short = 'o', long)]
         overwrite: bool,
     },
@@ -54,17 +59,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     let _storage = initialize_storage(args.storage_path);
 
     match &args.cmd {
-        Commands::Add { name, content, tags, overwrite} => {
-            let prompt = _storage.get_prompt(name);
-            match prompt {
-                Some(p) => {
-                    if *overwrite {
-                        _storage.save_prompt();
+        Commands::Add { name, content, prompt_type,  tags, overwrite} => {
+            match _storage.get_prompt(name) {
+                Ok(Some(p)) => {
+                    if !*overwrite {
+                         return Ok(());
                     }
                 }
+                _ => {},
+            };
+            match prompt_type.as_str() {
+                "simple" => Ok(_storage.save_prompt(&Prompt::new_simple(name.to_string(), content.to_string(), tags.clone()))?),
+                "template" => Ok(_storage.save_prompt(&Prompt::new_simple(name.to_string(), content.to_string(), tags.clone()))?),
+                _ => Err("Invalid prompt type, must be 'simple' or 'template'".into())
             }
         }
+        _ => Ok(()),
     }
-
-    Ok(())
 }
