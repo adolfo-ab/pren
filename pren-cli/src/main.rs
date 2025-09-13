@@ -49,6 +49,8 @@ enum Commands {
     Delete {
         #[arg(short = 'n', long)]
         name: String,
+        #[arg(short = 'f', long, default_value = "false")]
+        force: bool,
     },
 }
 
@@ -67,7 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     match &args.cmd {
         Commands::Add { name, content, prompt_type,  tags, overwrite} => {
             match _storage.get_prompt(name) {
-                Ok(p) => {
+                Ok(_p) => {
                     if !*overwrite {
                         eprintln!("Error: Prompt '{}' already exists. Use --overwrite to replace it.", name);
                         return Err(format!("Prompt '{}' already exists", name).into());
@@ -77,7 +79,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             };
             match prompt_type.as_str() {
                 "simple" => Ok(_storage.save_prompt(&Prompt::new_simple(name.to_string(), content.to_string(), tags.clone()))?),
-                "template" => Ok(_storage.save_prompt(&Prompt::new_simple(name.to_string(), content.to_string(), tags.clone()))?),
+                "template" => Ok(_storage.save_prompt(&Prompt::new_template(name.to_string(), content.to_string(), tags.clone())?)?),
                 _ => Err("Invalid prompt type, must be 'simple' or 'template'".into())
             }
         }
@@ -98,10 +100,50 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         Commands::List => {
-            todo!()
+            let prompts = _storage.get_prompts();
+            match prompts {
+                Ok(p) => {
+                    for prompt in p {
+                        println!("Prompt name: {}", prompt.name());
+                    }
+                    Ok(())
+                },
+                Err(e) => {
+                    eprintln!("Error retrieving prompts: '{}'", e);
+                    Err(e.into())
+                }
+            }
         }
-        Commands::Delete { name } => {
-            todo!()
+        Commands::Delete { name, force } => {
+            match _storage.get_prompt(name) {
+                Ok(_prompt) => {
+                    if !force {
+                        println!("Are you sure you want to delete prompt '{}'? [y/N]", name);
+                        let mut input = String::new();
+                        std::io::stdin().read_line(&mut input)?;
+                        let input = input.trim().to_lowercase();
+                        if input != "y" && input != "yes" {
+                            println!("Delete operation cancelled.");
+                            return Ok(());
+                        }
+                    }
+                    
+                    match _storage.delete_prompt(name) {
+                        Ok(()) => {
+                            println!("Prompt '{}' deleted successfully.", name);
+                            Ok(())
+                        }
+                        Err(e) => {
+                            eprintln!("Error deleting prompt '{}': {}", name, e);
+                            Err(e.into())
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error retrieving prompt '{}': {}", name, e);
+                    Err(e.into())
+                }
+            }
         }
     }
 }
