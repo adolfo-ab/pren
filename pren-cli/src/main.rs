@@ -24,7 +24,7 @@ struct Args {
     #[command(subcommand)]
     cmd: Commands,
 }
-/
+
 #[derive(Subcommand, Debug, Clone)]
 enum Commands {
     Add {
