@@ -16,7 +16,7 @@ bin_name = "pren",
 author="Adolfo AB,\
  adolfo.ab@proton.me",
 about="A simple and ergonomic prompt engine",
-long_about="A simple and ergonomic prompt engine", )]
+long_about="pren is a prompt management system designed for reusability and composability", )]
 struct Args {
     #[arg(short = 'p', long)]
     storage_path: Option<String>,
@@ -24,7 +24,7 @@ struct Args {
     #[command(subcommand)]
     cmd: Commands,
 }
-
+/
 #[derive(Subcommand, Debug, Clone)]
 enum Commands {
     Add {

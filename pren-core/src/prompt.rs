@@ -735,4 +735,38 @@ mod tests {
         let result = template_prompt.render(&args, &storage);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_render_template_with_nested_template_error() {
+        // Create a template prompt that will be referenced
+        let nested_template_prompt = Prompt::new_template(
+            "nested_template".to_string(),
+            "This is a nested template with {{variable}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create nested template prompt");
+
+        // Create a main template that references the nested template
+        let main_prompt = Prompt::new_template(
+            "main".to_string(),
+            "Referencing: {{prompt:nested_template}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create main template prompt");
+
+        // Set up storage with the nested template prompt
+        let mut storage = MockStorage::new();
+        storage.add_prompt(nested_template_prompt);
+
+        let mut args = HashMap::new();
+        args.insert("variable".to_string(), "value".to_string());
+
+        // Attempt to render, which should fail due to nested templates
+        let result = main_prompt.render(&args, &storage);
+        assert!(result.is_err());
+        assert_eq!(
+            "Nested prompt templates are not allowed",
+            result.unwrap_err().message
+        );
+    }
 }
