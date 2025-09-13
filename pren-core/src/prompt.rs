@@ -284,15 +284,23 @@ impl PromptTemplate {
                 PromptTemplatePart::PromptReference(name) => {
                     match storage.get_prompt(name) {
                         Ok(prompt) => {
-                            // Render the referenced prompt with the same arguments
-                            match prompt.render(arguments, storage) {
-                                Ok(rendered) => result.push_str(&rendered),
-                                Err(e) => {
+                            match prompt {
+                                Prompt::Simple {..} => {
+                                    match prompt.render(arguments, storage)  {
+                                        Ok(rendered) => result.push_str(&rendered),
+                                        Err(e) => {
+                                            return Err(RenderTemplateError {
+                                                message: format!(
+                                                    "Failed to render referenced prompt '{}': {}",
+                                                    name, e.message
+                                                ),
+                                            });
+                                        }
+                                    }
+                                },
+                                Prompt::Template { .. } => {
                                     return Err(RenderTemplateError {
-                                        message: format!(
-                                            "Failed to render referenced prompt '{}': {}",
-                                            name, e.message
-                                        ),
+                                        message: "Nested prompt templates are not allowed".to_string()
                                     });
                                 }
                             }
