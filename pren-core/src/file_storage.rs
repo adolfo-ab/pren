@@ -35,6 +35,7 @@ use std::error::Error;
 use std::fs::create_dir_all;
 use std::path::PathBuf;
 use std::{fmt, fs, io};
+use dirs::home_dir;
 use toml;
 use walkdir::WalkDir;
 
@@ -117,8 +118,10 @@ pub struct FileStorage {
 
 impl Default for FileStorage {
     fn default() -> Self {
-        Self {
-            base_path: PathBuf::from("~/pren-prompts"),
+        let base_path = home_dir();
+        match base_path {
+            Some(p) => Self { base_path: p.join("pren-prompts") },
+            None => Self { base_path: PathBuf::from("pren-prompts") }
         }
     }
 }
