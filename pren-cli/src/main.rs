@@ -36,7 +36,7 @@ enum Commands {
         content: String,
         #[arg(short = 't', long, value_delimiter = ',')]
         tags: Vec<String>,
-        #[arg(short = 's', long)]
+        #[arg(short = 's', long, value_parser=["simple", "template"])]
         prompt_type: String,
         #[arg(short = 'o', long)]
         overwrite: bool,
