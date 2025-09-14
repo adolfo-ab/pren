@@ -2,9 +2,11 @@ mod config;
 
 use arboard::Clipboard;
 use crate::config::initialize_storage;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, CommandFactory};
 use std::collections::HashMap;
 use std::error::Error;
+use std::io;
+use clap_complete::{generate, Shell};
 use pren_core::prompt::Prompt;
 use pren_core::registry::PromptStorage;
 
@@ -52,6 +54,10 @@ enum Commands {
         #[arg(short = 'f', long, default_value = "false")]
         force: bool,
     },
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
+    }
 }
 
 /// Parse a single key-value pair
@@ -144,6 +150,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                     Err(e.into())
                 }
             }
+        },
+        Commands::Completions { shell } => {
+            let mut cmd = Args::command();
+            generate(*shell, &mut cmd, "pren", &mut io::stdout());
+            Ok(())
         }
+
     }
 }
