@@ -2,35 +2,48 @@ mod config;
 
 use arboard::Clipboard;
 use crate::config::initialize_storage;
-use clap::{Parser, Subcommand, CommandFactory};
 use std::collections::HashMap;
 use std::error::Error;
-use std::io;
-use clap_complete::{generate, Shell};
 use pren_core::prompt::Prompt;
 use pren_core::registry::PromptStorage;
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum, ValueHint};
+use clap_complete::CompleteEnv;
+use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
 
-#[derive(Parser, Debug)]
-#[command(version,
-alias = "pren",
-display_name = "pren",
-bin_name = "pren",
-author="Adolfo AB,\
- adolfo.ab@proton.me",
-about="A simple and ergonomic prompt engine",
-long_about="pren is a prompt management system designed for reusability and composability", )]
-struct Args {
-    #[arg(short = 'p', long)]
-    storage_path: Option<String>,
 
-    #[command(subcommand)]
-    cmd: Commands,
+fn prompt_names(current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
+    let storage = initialize_storage(std::env::var("PREN_STORAGE_PATH").ok());
+
+    let prompts = storage.get_prompts();
+    match prompts {
+        Ok(prompts) => prompts.iter().map(|prompt| CompletionCandidate::new(prompt.name())).collect(),
+        Err(_) => vec![CompletionCandidate::new("")]
+    }
 }
 
-#[derive(Subcommand, Debug, Clone)]
-enum Commands {
+#[derive(Parser)]
+#[command(
+    name = "pren",
+    alias = "pren",
+    bin_name = "pren",
+    author = "Adolfo AB, adolfo.ab@proton.me",
+    version,
+    about = "A prompt engine designed for reusability and composability",
+    long_about = "A prompt engine designed for reusability and composability",
+)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+
+    // The storage path where pren prompts are stored
+    #[arg(long, short= 'p')]
+    storage_path: Option<String>,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
     Add {
-        #[arg(short = 'n', long)]
+        #[arg(short = 'n', long, value_hint = ValueHint::Other)]
         name: String,
         #[arg(short = 'c', long)]
         content: String,
@@ -42,7 +55,7 @@ enum Commands {
         overwrite: bool,
     },
     Get {
-        #[arg(short = 'n', long)]
+        #[arg(short = 'n', long, add = ArgValueCompleter::new(prompt_names))]
         name: String,
         #[arg(short = 'a', long, value_parser = parse_key_val, value_delimiter = ',')]
         args: Vec<(String, String)>,
@@ -54,10 +67,6 @@ enum Commands {
         #[arg(short = 'f', long, default_value = "false")]
         force: bool,
     },
-    Completions {
-        #[arg(value_enum)]
-        shell: Shell,
-    }
 }
 
 /// Parse a single key-value pair
@@ -69,14 +78,15 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
-    let _storage = initialize_storage(args.storage_path);
+    CompleteEnv::with_factory(Cli::command).complete();
+    let mut cli = Cli::parse();
+    let _storage = initialize_storage(cli.storage_path);
 
-    match &args.cmd {
+    match cli.command {
         Commands::Add { name, content, prompt_type,  tags, overwrite} => {
-            match _storage.get_prompt(name) {
+            match _storage.get_prompt(&name) {
                 Ok(_p) => {
-                    if !*overwrite {
+                    if !overwrite {
                         eprintln!("Error: Prompt '{}' already exists. Use --overwrite to replace it.", name);
                         return Err(format!("Prompt '{}' already exists", name).into());
                     }
@@ -90,7 +100,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         Commands::Get { name, args: kv_args } => {
-            match _storage.get_prompt(name) {
+            match _storage.get_prompt(&name) {
                 Ok(prompt) => {
                     let mut clipboard = Clipboard::new()?;
                     let args_map: HashMap<String, String> = kv_args.iter().cloned().collect();
@@ -121,7 +131,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         Commands::Delete { name, force } => {
-            match _storage.get_prompt(name) {
+            match _storage.get_prompt(&name) {
                 Ok(_prompt) => {
                     if !force {
                         println!("Are you sure you want to delete prompt '{}'? [y/N]", name);
@@ -134,7 +144,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                     
-                    match _storage.delete_prompt(name) {
+                    match _storage.delete_prompt(&name) {
                         Ok(()) => {
                             println!("Prompt '{}' deleted successfully.", name);
                             Ok(())
@@ -151,11 +161,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
         },
-        Commands::Completions { shell } => {
-            let mut cmd = Args::command();
-            generate(*shell, &mut cmd, "pren", &mut io::stdout());
-            Ok(())
-        }
 
     }
 }
