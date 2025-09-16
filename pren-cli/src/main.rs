@@ -62,7 +62,7 @@ pub enum Commands {
     },
     List,
     Delete {
-        #[arg(short = 'n', long)]
+        #[arg(short = 'n', long, add = ArgValueCompleter::new(prompt_names))]
         name: String,
         #[arg(short = 'f', long, default_value = "false")]
         force: bool,
