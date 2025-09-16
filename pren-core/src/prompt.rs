@@ -167,6 +167,20 @@ impl Prompt {
         }
     }
 
+    pub fn is_simple(content: String) -> Result<bool, ParseTemplateError> {
+        match parse_template(&content) {
+            Ok((_, template)) => {
+                Ok(template.arguments().len() == 0 && template.prompt_references().len() == 0)
+            },
+            Err(NomErr::Error(e)) | Err(NomErr::Failure(e)) => Err(ParseTemplateError {
+                message: format!("Failed to parse template: {:?}", e),
+            }),
+            Err(NomErr::Incomplete(_)) => Err(ParseTemplateError {
+                message: "Failed to parse template: incomplete input".to_string(),
+            }),
+        }
+    }
+
     pub fn name(&self) -> &str {
         match self {
             Prompt::Simple { base } => &base.name,
@@ -208,6 +222,7 @@ impl Prompt {
             Prompt::Template { template, .. } => Some(template.prompt_references()),
         }
     }
+
 
     /// Renders a prompt with the given arguments.
     ///
