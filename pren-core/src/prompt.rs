@@ -43,9 +43,10 @@ use std::collections::HashMap;
 use std::error::Error;
 
 #[derive(Debug, Clone)]
-pub struct PromptBase {
+pub struct Prompt {
     pub name: String,
     pub content: String,
+    pub template: PromptTemplate,
     pub tags: Vec<String>,
 }
 
@@ -75,23 +76,6 @@ impl std::fmt::Display for RenderTemplateError {
 
 impl Error for RenderTemplateError {}
 
-/// The main prompt type, which can be either a simple prompt or a template prompt.
-#[derive(Debug, Clone)]
-pub enum Prompt {
-    /// A simple prompt with plain text content.
-    Simple {
-        /// The base prompt data.
-        base: PromptBase,
-    },
-    /// A template prompt with placeholders that can be filled at render time.
-    Template {
-        /// The base prompt data.
-        base: PromptBase,
-        /// The parsed template structure.
-        template: PromptTemplate,
-    },
-}
-
 /// A part of a parsed template.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PromptTemplatePart {
@@ -111,53 +95,31 @@ pub struct PromptTemplate {
 }
 
 impl Prompt {
-    /// Creates a new simple prompt.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the prompt.
-    /// * `content` - The content of the prompt.
-    /// * `tags` - A vector of tags associated with the prompt.
-    ///
-    /// # Returns
-    ///
-    /// A new `Prompt::Simple` variant.
-    pub fn new_simple(name: String, content: String, tags: Vec<String>) -> Prompt {
-        Prompt::Simple {
-            base: PromptBase {
-                name,
-                content,
-                tags,
-            },
-        }
-    }
-
     /// Creates a new template prompt.
     ///
     /// # Arguments
     ///
     /// * `name` - The name of the prompt.
     /// * `content` - The content of the prompt with template syntax.
+    /// * `template` - The PromptTemplate resulting of parsing the content.
     /// * `tags` - A vector of tags associated with the prompt.
     ///
     /// # Returns
     ///
     /// * `Ok(Prompt)` - A new `Prompt::Template` variant.
     /// * `Err(ParseTemplateError)` - If the template syntax is invalid.
-    pub fn new_template(
+    pub fn new(
         name: String,
         content: String,
         tags: Vec<String>,
     ) -> Result<Prompt, ParseTemplateError> {
         match parse_template(&content) {
-            Ok((_, template)) => Ok(Prompt::Template {
-                base: PromptBase {
+            Ok((_, template)) => Ok(Prompt {
                     name,
                     content,
-                    tags,
-                },
-                template,
-            }),
+                    template,
+                    tags
+                }),
             Err(NomErr::Error(e)) | Err(NomErr::Failure(e)) => Err(ParseTemplateError {
                 message: format!("Failed to parse template: {:?}", e),
             }),
@@ -178,48 +140,6 @@ impl Prompt {
             Err(NomErr::Incomplete(_)) => Err(ParseTemplateError {
                 message: "Failed to parse template: incomplete input".to_string(),
             }),
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        match self {
-            Prompt::Simple { base } => &base.name,
-            Prompt::Template { base, .. } => &base.name,
-        }
-    }
-
-    pub fn content(&self) -> &str {
-        match self {
-            Prompt::Simple { base } => &base.content,
-            Prompt::Template { base, .. } => &base.content,
-        }
-    }
-
-    pub fn tags(&self) -> &Vec<String> {
-        match self {
-            Prompt::Simple { base } => &base.tags,
-            Prompt::Template { base, .. } => &base.tags,
-        }
-    }
-
-    pub fn template(&self) -> Option<&PromptTemplate> {
-        match self {
-            Prompt::Simple { .. } => None,
-            Prompt::Template { template, .. } => Some(&template),
-        }
-    }
-
-    pub fn arguments(&self) -> Option<Vec<&String>> {
-        match self {
-            Prompt::Simple { .. } => None,
-            Prompt::Template { template, .. } => Some(template.arguments()),
-        }
-    }
-
-    pub fn prompt_references(&self) -> Option<Vec<&String>> {
-        match self {
-            Prompt::Simple { .. } => None,
-            Prompt::Template { template, .. } => Some(template.prompt_references()),
         }
     }
 
@@ -244,10 +164,7 @@ impl Prompt {
         arguments: &HashMap<String, String>,
         storage: &S,
     ) -> Result<String, RenderTemplateError> {
-        match self {
-            Prompt::Simple { base } => Ok(base.content.clone()),
-            Prompt::Template { template, .. } => template.render(arguments, storage),
-        }
+        self.template.render(arguments, storage)
     }
 }
 
@@ -299,27 +216,18 @@ impl PromptTemplate {
                 PromptTemplatePart::PromptReference(name) => {
                     match storage.get_prompt(name) {
                         Ok(prompt) => {
-                            match prompt {
-                                Prompt::Simple {..} => {
-                                    match prompt.render(arguments, storage)  {
-                                        Ok(rendered) => result.push_str(&rendered),
-                                        Err(e) => {
-                                            return Err(RenderTemplateError {
-                                                message: format!(
-                                                    "Failed to render referenced prompt '{}': {}",
-                                                    name, e.message
-                                                ),
-                                            });
-                                        }
-                                    }
-                                },
-                                Prompt::Template { .. } => {
+                            match prompt.render(arguments, storage) {
+                                Ok(rendered) => result.push_str(&rendered),
+                                Err(e) => {
                                     return Err(RenderTemplateError {
-                                        message: "Nested prompt templates are not allowed".to_string()
+                                        message: format!(
+                                            "Failed to render referenced prompt '{}': {}",
+                                            name, e.message
+                                        ),
                                     });
                                 }
                             }
-                        }
+                        },
                         Err(e) => {
                             return Err(RenderTemplateError {
                                 message: format!(
@@ -332,7 +240,6 @@ impl PromptTemplate {
                 }
             }
         }
-
         Ok(result)
     }
 }
@@ -347,14 +254,18 @@ mod tests {
         let name = "prompt_name";
         let content = "This is the prompt content";
         let tags = vec!["tag1".to_string(), "tag2".to_string()];
-        let prompt = Prompt::new_simple(name.to_string(), content.to_string(), tags.clone());
+        let result = Prompt::new(name.to_string(), content.to_string(), tags.clone());
 
-        assert_eq!(name, prompt.name());
-        assert_eq!(content, prompt.content());
+        assert!(result.is_ok());
 
-        assert_eq!(2, prompt.tags().len());
-        assert_eq!(tags[0], prompt.tags()[0]);
-        assert_eq!(tags[1], prompt.tags()[1]);
+        let prompt = result.unwrap();
+
+        assert_eq!(name, prompt.name);
+        assert_eq!(content, prompt.content);
+        assert_eq!(1, prompt.template.parts.len());
+        assert_eq!(2, prompt.tags.len());
+        assert_eq!(tags[0], prompt.tags[0]);
+        assert_eq!(tags[1], prompt.tags[1]);
     }
 
     #[test]
@@ -363,213 +274,49 @@ mod tests {
         let content = "Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal_braces}}}}";
         let tags = vec!["tag1".to_string(), "tag2".to_string()];
 
-        let prompt = Prompt::new_template(name.to_string(), content.to_string(), tags.clone())
+        let prompt = Prompt::new(name.to_string(), content.to_string(), tags.clone())
             .expect("Failed to create template prompt");
 
-        assert_eq!(name, prompt.name());
-        assert_eq!(content, prompt.content());
+        assert_eq!(name, prompt.name);
+        assert_eq!(content, prompt.content);
 
-        assert_eq!(2, prompt.tags().len());
-        assert_eq!(tags[0], prompt.tags()[0]);
-        assert_eq!(tags[1], prompt.tags()[1]);
+        assert_eq!(2, prompt.tags.len());
+        assert_eq!(tags[0], prompt.tags[0]);
+        assert_eq!(tags[1], prompt.tags[1]);
 
         // Check that it's actually a template prompt
-        match &prompt {
-            Prompt::Template { template, .. } => {
-                assert_eq!(6, template.parts.len());
+        assert_eq!(6, prompt.template.parts.len());
 
-                // Check each part
-                match &template.parts[0] {
-                    PromptTemplatePart::Literal(text) => assert_eq!("Hello ", text),
-                    _ => panic!("Expected Literal part"),
-                }
-
-                match &template.parts[1] {
-                    PromptTemplatePart::Argument(arg) => assert_eq!("name", arg),
-                    _ => panic!("Expected Argument part"),
-                }
-
-                match &template.parts[2] {
-                    PromptTemplatePart::Literal(text) => assert_eq!(", welcome to ", text),
-                    _ => panic!("Expected Literal part"),
-                }
-
-                match &template.parts[3] {
-                    PromptTemplatePart::PromptReference(prompt_name) => {
-                        assert_eq!("greeting", prompt_name)
-                    }
-                    _ => panic!("Expected PromptReference part"),
-                }
-
-                match &template.parts[4] {
-                    PromptTemplatePart::Literal(text) => assert_eq!("! ", text),
-                    _ => panic!("Expected Literal part"),
-                }
-
-                match &template.parts[5] {
-                    PromptTemplatePart::Literal(text) => assert_eq!("literal_braces", text),
-                    _ => panic!("Expected Literal part"),
-                }
-            }
-            _ => panic!("Expected Template prompt"),
-        }
-    }
-
-    #[test]
-    fn test_arguments_simple_prompt() {
-        let simple_prompt = Prompt::new_simple(
-            "simple".to_string(),
-            "This is a simple prompt".to_string(),
-            vec![],
-        );
-        assert!(simple_prompt.arguments().is_none());
-    }
-
-    #[test]
-    fn test_arguments_template_prompt() {
-        let template_prompt = Prompt::new_template(
-            "template".to_string(),
-            "Hello {{name}}, you are {{age}} years old!".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
-
-        let args = template_prompt
-            .arguments()
-            .expect("Expected Some(Vec<&String>)");
-        assert_eq!(2, args.len());
-        assert_eq!("name", args[0]);
-        assert_eq!("age", args[1]);
-    }
-
-    #[test]
-    fn test_arguments_template_prompt_without_args() {
-        let no_args_prompt = Prompt::new_template(
-            "no_args".to_string(),
-            "Hello, welcome to our service! {{{{literal_braces}}}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
-
-        let args = no_args_prompt
-            .arguments()
-            .expect("Expected Some(Vec<&String>)");
-        assert_eq!(0, args.len());
-    }
-
-    #[test]
-    fn test_prompt_references_simple() {
-        let simple_prompt = Prompt::new_simple(
-            "simple".to_string(),
-            "This is a simple prompt".to_string(),
-            vec![],
-        );
-        assert!(simple_prompt.prompt_references().is_none());
-    }
-
-    #[test]
-    fn test_prompt_references() {
-        let template_prompt = Prompt::new_template(
-            "template".to_string(),
-            "Greeting: {{prompt:greeting}}, Farewell: {{prompt:farewell}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
-
-        let refs = template_prompt
-            .prompt_references()
-            .expect("Expected Some(Vec<&String>)");
-        assert_eq!(2, refs.len());
-        assert_eq!("greeting", refs[0]);
-        assert_eq!("farewell", refs[1]);
-    }
-
-    #[test]
-    fn test_prompt_references_no_refs() {
-        let no_refs_prompt = Prompt::new_template(
-            "no_refs".to_string(),
-            "Hello {{name}}, how are you? {{{{literal_braces}}}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
-
-        let refs = no_refs_prompt
-            .prompt_references()
-            .expect("Expected Some(Vec<&String>)");
-        assert_eq!(0, refs.len());
-    }
-
-    #[test]
-    fn test_arguments_and_prompt_references_combined() {
-        let complex_prompt = Prompt::new_template(
-            "complex".to_string(),
-            "Dear {{name}}, {{prompt:greeting}} {{{{literal_braces}}}} Best regards, {{signature}} from {{prompt:company}}".to_string(),
-            vec![]
-        ).expect("Failed to create template prompt");
-
-        let args = complex_prompt
-            .arguments()
-            .expect("Expected Some(Vec<&String>)");
-        assert_eq!(2, args.len());
-        assert_eq!("name", args[0]);
-        assert_eq!("signature", args[1]);
-
-        let refs = complex_prompt
-            .prompt_references()
-            .expect("Expected Some(Vec<&String>)");
-        assert_eq!(2, refs.len());
-        assert_eq!("greeting", refs[0]);
-        assert_eq!("company", refs[1]);
-    }
-
-    #[test]
-    fn test_template_method_simple_prompt() {
-        let simple_prompt = Prompt::new_simple(
-            "simple".to_string(),
-            "This is a simple prompt".to_string(),
-            vec![],
-        );
-
-        assert!(simple_prompt.template().is_none());
-    }
-
-    #[test]
-    fn test_template_method_template_prompt() {
-        let template_prompt = Prompt::new_template(
-            "template".to_string(),
-            "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
-            vec!["test".to_string()],
-        )
-        .expect("Failed to create template prompt");
-
-        let template = template_prompt
-            .template()
-            .expect("Expected Some(&PromptTemplate)");
-
-        assert_eq!(5, template.parts.len());
-
-        match &template.parts[0] {
+        // Check each part
+        match &prompt.template.parts[0] {
             PromptTemplatePart::Literal(text) => assert_eq!("Hello ", text),
             _ => panic!("Expected Literal part"),
         }
 
-        match &template.parts[1] {
+        match &prompt.template.parts[1] {
             PromptTemplatePart::Argument(arg) => assert_eq!("name", arg),
             _ => panic!("Expected Argument part"),
         }
 
-        match &template.parts[2] {
+        match &prompt.template.parts[2] {
             PromptTemplatePart::Literal(text) => assert_eq!(", welcome to ", text),
             _ => panic!("Expected Literal part"),
         }
 
-        match &template.parts[3] {
-            PromptTemplatePart::PromptReference(prompt_name) => assert_eq!("greeting", prompt_name),
+        match &prompt.template.parts[3] {
+            PromptTemplatePart::PromptReference(prompt_name) => {
+                assert_eq!("greeting", prompt_name)
+            }
             _ => panic!("Expected PromptReference part"),
         }
 
-        match &template.parts[4] {
-            PromptTemplatePart::Literal(text) => assert_eq!("!", text),
+        match &prompt.template.parts[4] {
+            PromptTemplatePart::Literal(text) => assert_eq!("! ", text),
+            _ => panic!("Expected Literal part"),
+        }
+
+        match &prompt.template.parts[5] {
+            PromptTemplatePart::Literal(text) => assert_eq!("literal_braces", text),
             _ => panic!("Expected Literal part"),
         }
     }
@@ -586,7 +333,7 @@ mod tests {
         }
 
         fn add_prompt(&mut self, prompt: Prompt) {
-            self.prompts.insert(prompt.name().to_string(), prompt);
+            self.prompts.insert(prompt.name.clone(), prompt);
         }
     }
 
@@ -600,7 +347,7 @@ mod tests {
         fn get_prompt(&self, name: &str) -> Result<Prompt, Error> {
             match self.prompts.get(name) {
                 Some(prompt) => Ok(prompt.clone()),
-                None => Err(std::fmt::Error),
+                None => Err(Error),
             }
         }
 
@@ -619,11 +366,11 @@ mod tests {
 
     #[test]
     fn test_render_simple_prompt() {
-        let simple_prompt = Prompt::new_simple(
+        let simple_prompt = Prompt::new(
             "simple".to_string(),
             "This is a simple prompt".to_string(),
             vec![],
-        );
+        ).expect("Failed to create simple prompt");
 
         let mut args = HashMap::new();
         args.insert("name".to_string(), "World".to_string());
@@ -637,7 +384,7 @@ mod tests {
 
     #[test]
     fn test_render_template_prompt() {
-        let template_prompt = Prompt::new_template(
+        let template_prompt = Prompt::new(
             "template".to_string(),
             "Hello {{name}}, welcome!".to_string(),
             vec![],
@@ -656,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_render_template_prompt_missing_argument() {
-        let template_prompt = Prompt::new_template(
+        let template_prompt = Prompt::new(
             "template".to_string(),
             "Hello {{name}}, welcome!".to_string(),
             vec![],
@@ -673,7 +420,7 @@ mod tests {
 
     #[test]
     fn test_render_template_prompt_multiple_arguments() {
-        let template_prompt = Prompt::new_template(
+        let template_prompt = Prompt::new(
             "template".to_string(),
             "Dear {{name}}, you are {{age}} years old!".to_string(),
             vec![],
@@ -693,7 +440,7 @@ mod tests {
 
     #[test]
     fn test_render_template_prompt_with_escaped_literals() {
-        let template_prompt = Prompt::new_template(
+        let template_prompt = Prompt::new(
             "template".to_string(),
             "Hello {{{{{{name}}}}}}, you are {{age}} years old!".to_string(),
             vec![],
@@ -712,10 +459,13 @@ mod tests {
 
     #[test]
     fn test_render_template_with_prompt_reference() {
-        let greeting_prompt =
-            Prompt::new_simple("greeting".to_string(), "Hello!".to_string(), vec![]);
+        let greeting_prompt = Prompt::new(
+            "greeting".to_string(),
+            "Hello!".to_string(),
+            vec![],
+        ).expect("Failed to create greeting prompt");
 
-        let main_prompt = Prompt::new_template(
+        let main_prompt = Prompt::new(
             "main".to_string(),
             "{{prompt:greeting}} Nice to meet you {{name}}!".to_string(),
             vec![],
@@ -736,7 +486,7 @@ mod tests {
 
     #[test]
     fn test_render_template_with_missing_prompt_reference() {
-        let template_prompt = Prompt::new_template(
+        let template_prompt = Prompt::new(
             "template".to_string(),
             "Message: {{prompt:missing}}".to_string(),
             vec![],
@@ -754,7 +504,7 @@ mod tests {
     #[test]
     fn test_render_template_with_nested_template_error() {
         // Create a template prompt that will be referenced
-        let nested_template_prompt = Prompt::new_template(
+        let nested_template_prompt = Prompt::new(
             "nested_template".to_string(),
             "This is a nested template with {{variable}}".to_string(),
             vec![],
@@ -762,7 +512,7 @@ mod tests {
         .expect("Failed to create nested template prompt");
 
         // Create a main template that references the nested template
-        let main_prompt = Prompt::new_template(
+        let main_prompt = Prompt::new(
             "main".to_string(),
             "Referencing: {{prompt:nested_template}}".to_string(),
             vec![],
@@ -778,7 +528,7 @@ mod tests {
 
         // Attempt to render, which should fail due to nested templates
         let result = main_prompt.render(&args, &storage);
-        assert!(result.is_err());
+        assert!(result.is_ok());
         assert_eq!(
             "Nested prompt templates are not allowed",
             result.unwrap_err().message

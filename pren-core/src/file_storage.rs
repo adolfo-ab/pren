@@ -151,16 +151,12 @@ impl PromptStorage for FileStorage {
     fn save_prompt(&self, prompt: &Prompt) -> Result<(), FileStorageError> {
         self.ensure_base_directory_exists()?;
 
-        let file_path = self.base_path.join(format!("{}.toml", prompt.name()));
+        let file_path = self.base_path.join(format!("{}.toml", prompt.name));
 
         let prompt_file = PromptFile {
-            tags: prompt.tags().clone(),
-            name: prompt.name().to_string(),
-            content: prompt.content().to_string(),
-            prompt_type: match prompt {
-                Prompt::Simple { .. } => "simple".to_string(),
-                Prompt::Template { .. } => "template".to_string(),
-            },
+            tags: prompt.tags.clone(),
+            name: prompt.name.to_string(),
+            content: prompt.content.to_string(),
         };
 
         let serialized_data = toml::to_string_pretty(&prompt_file)?;
@@ -290,15 +286,8 @@ impl FileStorage {
         Ok(())
     }
 
-    fn create_prompt_from_file(&self, prompt_file: PromptFile) -> Result<Prompt, FileStorageError> {
-        let prompt = match prompt_file.prompt_type.as_str() {
-            "simple" => Prompt::new_simple(prompt_file.name, prompt_file.content, prompt_file.tags),
-            "template" => {
-                Prompt::new_template(prompt_file.name, prompt_file.content, prompt_file.tags)?
-            }
-            _ => return Err(FileStorageError::InvalidPromptType(prompt_file.prompt_type)),
-        };
-        Ok(prompt)
+    fn create_prompt_from_file(&self, prompt_file: PromptFile) -> Result<Prompt, ParseTemplateError> {
+        Prompt::new(prompt_file.name, prompt_file.content, prompt_file.tags)
     }
 
     fn get_toml_files(&self) -> Result<Vec<walkdir::DirEntry>, FileStorageError> {
@@ -327,11 +316,11 @@ mod tests {
             base_path: temp_dir.path().to_path_buf(),
         };
 
-        let prompt = Prompt::new_simple(
+        let prompt = Prompt::new(
             "test_prompt".to_string(),
             "This is a test prompt".to_string(),
             vec!["tag1".to_string(), "tag2".to_string()],
-        );
+        ).expect("Failed to create prompt");
 
         let result = storage.save_prompt(&prompt);
 
@@ -346,7 +335,6 @@ mod tests {
         assert!(content.contains("This is a test prompt"));
         assert!(content.contains("tag1"));
         assert!(content.contains("tag2"));
-        assert!(content.contains("simple"));
     }
 
     #[test]
@@ -356,7 +344,7 @@ mod tests {
             base_path: temp_dir.path().to_path_buf(),
         };
 
-        let prompt = Prompt::new_template(
+        let prompt = Prompt::new(
             "template_prompt".to_string(),
             "This is a template prompt with {{variable}}".to_string(),
             vec!["template".to_string()],
@@ -380,7 +368,7 @@ mod tests {
     #[test]
     fn test_save_prompt_invalid_template() {
         // Test that invalid template syntax fails at prompt creation time
-        let result = Prompt::new_template(
+        let result = Prompt::new(
             "invalid_template".to_string(),
             "This has invalid syntax {{unclosed".to_string(),
             vec![],
@@ -407,7 +395,7 @@ mod tests {
         // Directory should not exist yet
         assert!(!prompts_dir.exists());
 
-        let prompt = Prompt::new_simple("dir_test".to_string(), "Test content".to_string(), vec![]);
+        let prompt = Prompt::new("dir_test".to_string(), "Test content".to_string(), vec![]).expect("Failed to create prompt");
 
         let result = storage.save_prompt(&prompt);
 
@@ -426,20 +414,20 @@ mod tests {
         };
 
         // Save first version
-        let prompt1 = Prompt::new_simple(
+        let prompt1 = Prompt::new(
             "overwrite_test".to_string(),
             "First version".to_string(),
             vec!["v1".to_string()],
-        );
+        ).expect("Failed to create prompt");
         let result1 = storage.save_prompt(&prompt1);
         assert!(result1.is_ok());
 
         // Save second version (should overwrite)
-        let prompt2 = Prompt::new_simple(
+        let prompt2 = Prompt::new(
             "overwrite_test".to_string(),
             "Second version".to_string(),
             vec!["v2".to_string()],
-        );
+        ).expect("Failed to create prompt");
         let result2 = storage.save_prompt(&prompt2);
         assert!(result2.is_ok());
 
@@ -459,7 +447,7 @@ mod tests {
             base_path: temp_dir.path().to_path_buf(),
         };
 
-        let prompt = Prompt::new_template(
+        let prompt = Prompt::new(
             "complex_template".to_string(),
             "Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal}}}}".to_string(),
             vec!["complex".to_string(), "template".to_string()],
@@ -492,7 +480,7 @@ mod tests {
             base_path: file_path,
         };
 
-        let prompt = Prompt::new_simple("test".to_string(), "content".to_string(), vec![]);
+        let prompt = Prompt::new("test".to_string(), "content".to_string(), vec![]).expect("Failed to create prompt");
 
         let result = storage.save_prompt(&prompt);
         assert!(result.is_err());
@@ -506,11 +494,11 @@ mod tests {
         };
 
         // First save a simple prompt
-        let original_prompt = Prompt::new_simple(
+        let original_prompt = Prompt::new(
             "load_test_simple".to_string(),
             "This is a simple prompt for loading".to_string(),
             vec!["test".to_string(), "simple".to_string()],
-        );
+        ).expect("Failed to create prompt");
         storage.save_prompt(&original_prompt).unwrap();
 
         // Now load it back
@@ -518,21 +506,15 @@ mod tests {
         assert!(result.is_ok());
 
         let loaded_prompt = result.unwrap();
-        assert_eq!(loaded_prompt.name(), "load_test_simple");
+        assert_eq!(loaded_prompt.name, "load_test_simple");
         assert_eq!(
-            loaded_prompt.content(),
+            loaded_prompt.content,
             "This is a simple prompt for loading"
         );
         assert_eq!(
-            loaded_prompt.tags(),
-            &vec!["test".to_string(), "simple".to_string()]
+            loaded_prompt.tags,
+            vec!["test".to_string(), "simple".to_string()]
         );
-
-        // Verify it's a simple prompt
-        match loaded_prompt {
-            Prompt::Simple { .. } => {}
-            _ => panic!("Expected Simple prompt variant"),
-        }
     }
 
     #[test]
@@ -543,12 +525,12 @@ mod tests {
         };
 
         // First save a template prompt
-        let original_prompt = Prompt::new_template(
+        let original_prompt = Prompt::new(
             "load_test_template".to_string(),
             "Hello {{name}}, this is {{topic}}".to_string(),
             vec!["test".to_string(), "template".to_string()],
         )
-        .unwrap();
+        .expect("Failed to create prompt");
         storage.save_prompt(&original_prompt).unwrap();
 
         // Now load it back
@@ -556,18 +538,12 @@ mod tests {
         assert!(result.is_ok());
 
         let loaded_prompt = result.unwrap();
-        assert_eq!(loaded_prompt.name(), "load_test_template");
-        assert_eq!(loaded_prompt.content(), "Hello {{name}}, this is {{topic}}");
+        assert_eq!(loaded_prompt.name, "load_test_template");
+        assert_eq!(loaded_prompt.content, "Hello {{name}}, this is {{topic}}");
         assert_eq!(
-            loaded_prompt.tags(),
-            &vec!["test".to_string(), "template".to_string()]
+            loaded_prompt.tags,
+            vec!["test".to_string(), "template".to_string()]
         );
-
-        // Verify it's a template prompt
-        match loaded_prompt {
-            Prompt::Template { .. } => {}
-            _ => panic!("Expected Template prompt variant"),
-        }
     }
 
     #[test]
@@ -687,11 +663,11 @@ mod tests {
         };
 
         // Save a prompt with no tags
-        let prompt = Prompt::new_simple(
+        let prompt = Prompt::new(
             "no_tags_test".to_string(),
             "Content without tags".to_string(),
             vec![],
-        );
+        ).expect("Failed to create prompt");
         storage.save_prompt(&prompt).unwrap();
 
         // Load it back
@@ -699,9 +675,9 @@ mod tests {
         assert!(result.is_ok());
 
         let loaded_prompt = result.unwrap();
-        assert_eq!(loaded_prompt.name(), "no_tags_test");
-        assert_eq!(loaded_prompt.content(), "Content without tags");
-        assert!(loaded_prompt.tags().is_empty());
+        assert_eq!(loaded_prompt.name, "no_tags_test");
+        assert_eq!(loaded_prompt.content, "Content without tags");
+        assert!(loaded_prompt.tags.is_empty());
     }
 
     #[test]
@@ -714,7 +690,7 @@ mod tests {
         // Save a complex template prompt
         let complex_content =
             "Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal}}}} Today is {{date}}.";
-        let original_prompt = Prompt::new_template(
+        let original_prompt = Prompt::new(
             "complex_template_load".to_string(),
             complex_content.to_string(),
             vec![
@@ -731,22 +707,16 @@ mod tests {
         assert!(result.is_ok());
 
         let loaded_prompt = result.unwrap();
-        assert_eq!(loaded_prompt.name(), "complex_template_load");
-        assert_eq!(loaded_prompt.content(), complex_content);
+        assert_eq!(loaded_prompt.name, "complex_template_load");
+        assert_eq!(loaded_prompt.content, complex_content);
         assert_eq!(
-            loaded_prompt.tags(),
-            &vec![
+            loaded_prompt.tags,
+            vec![
                 "complex".to_string(),
                 "template".to_string(),
                 "test".to_string()
             ]
         );
-
-        // Verify it's a template prompt
-        match loaded_prompt {
-            Prompt::Template { .. } => {}
-            _ => panic!("Expected Template prompt variant"),
-        }
     }
 
     #[test]
@@ -758,11 +728,11 @@ mod tests {
 
         // Save a prompt with special characters
         let special_content = "Content with special chars: ñáéíóú, 中文, emoji 🚀, quotes \"'`";
-        let original_prompt = Prompt::new_simple(
+        let original_prompt = Prompt::new(
             "special_chars_test".to_string(),
             special_content.to_string(),
             vec!["special".to_string(), "unicode".to_string()],
-        );
+        ).expect("Failed to create prompt");
         storage.save_prompt(&original_prompt).unwrap();
 
         // Load it back
@@ -770,7 +740,7 @@ mod tests {
         assert!(result.is_ok());
 
         let loaded_prompt = result.unwrap();
-        assert_eq!(loaded_prompt.content(), special_content);
+        assert_eq!(loaded_prompt.content, special_content);
     }
 
     #[test]
@@ -781,11 +751,11 @@ mod tests {
         };
 
         // Save a prompt
-        let prompt = Prompt::new_simple(
+        let prompt = Prompt::new(
             "delete_test".to_string(),
             "This is a test prompt for deletion".to_string(),
             vec!["test".to_string(), "delete".to_string()],
-        );
+        ).expect("Failed to create prompt");
         storage.save_prompt(&prompt).unwrap();
 
         // Verify the file exists
@@ -799,7 +769,7 @@ mod tests {
         // Verify the file no longer exists
         assert!(!file_path.exists());
 
-        // Try to delete a non-existent prompt (should succeed)
+        // Try to delete a non-existent prompt (should fail)
         let result = storage.delete_prompt("nonexistent");
         assert!(result.is_err());
     }
@@ -812,19 +782,19 @@ mod tests {
         };
 
         // Save a few different prompts
-        let simple_prompt = Prompt::new_simple(
+        let simple_prompt = Prompt::new(
             "simple_test".to_string(),
             "This is a simple prompt".to_string(),
             vec!["simple".to_string(), "test".to_string()],
-        );
+        ).expect("Failed to create prompt");
         storage.save_prompt(&simple_prompt).unwrap();
 
-        let template_prompt = Prompt::new_template(
+        let template_prompt = Prompt::new(
             "template_test".to_string(),
             "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
             vec!["template".to_string(), "test".to_string()],
         )
-        .unwrap();
+        .expect("Failed to create prompt");
         storage.save_prompt(&template_prompt).unwrap();
 
         // Get all prompts
@@ -835,33 +805,25 @@ mod tests {
         assert_eq!(prompts.len(), 2);
 
         // Find and verify each prompt
-        let simple_found = prompts.iter().find(|p| p.name() == "simple_test").unwrap();
-        assert_eq!(simple_found.content(), "This is a simple prompt");
+        let simple_found = prompts.iter().find(|p| p.name == "simple_test").unwrap();
+        assert_eq!(simple_found.content, "This is a simple prompt");
         assert_eq!(
-            simple_found.tags(),
-            &vec!["simple".to_string(), "test".to_string()]
+            simple_found.tags,
+            vec!["simple".to_string(), "test".to_string()]
         );
-        match simple_found {
-            Prompt::Simple { .. } => {}
-            _ => panic!("Expected Simple prompt variant"),
-        }
 
         let template_found = prompts
             .iter()
-            .find(|p| p.name() == "template_test")
+            .find(|p| p.name == "template_test")
             .unwrap();
         assert_eq!(
-            template_found.content(),
+            template_found.content,
             "Hello {{name}}, welcome to {{prompt:greeting}}!"
         );
         assert_eq!(
-            template_found.tags(),
-            &vec!["template".to_string(), "test".to_string()]
+            template_found.tags,
+            vec!["template".to_string(), "test".to_string()]
         );
-        match template_found {
-            Prompt::Template { .. } => {}
-            _ => panic!("Expected Template prompt variant"),
-        }
     }
 
     #[test]
@@ -887,11 +849,11 @@ mod tests {
         };
 
         // Create a valid prompt file
-        let prompt = Prompt::new_simple(
+        let prompt = Prompt::new(
             "valid_prompt".to_string(),
             "This is a valid prompt".to_string(),
             vec!["valid".to_string()],
-        );
+        ).expect("Failed to create prompt");
         storage.save_prompt(&prompt).unwrap();
 
         // Create an invalid TOML file
@@ -916,26 +878,26 @@ mod tests {
         };
 
         // Save a few different prompts with different tags
-        let simple_prompt = Prompt::new_simple(
+        let simple_prompt = Prompt::new(
             "simple_test".to_string(),
             "This is a simple prompt".to_string(),
             vec!["simple".to_string(), "test".to_string()],
-        );
+        ).expect("Failed to create prompt");
         storage.save_prompt(&simple_prompt).unwrap();
 
-        let template_prompt = Prompt::new_template(
+        let template_prompt = Prompt::new(
             "template_test".to_string(),
             "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
             vec!["template".to_string(), "test".to_string()],
         )
-        .unwrap();
+        .expect("Failed to create prompt");
         storage.save_prompt(&template_prompt).unwrap();
 
-        let another_prompt = Prompt::new_simple(
+        let another_prompt = Prompt::new(
             "another_test".to_string(),
             "This is another prompt".to_string(),
             vec!["another".to_string()],
-        );
+        ).expect("Failed to create prompt");
         storage.save_prompt(&another_prompt).unwrap();
 
         // Get prompts by "test" tag (should return 2 prompts)
@@ -946,33 +908,25 @@ mod tests {
         assert_eq!(prompts.len(), 2);
 
         // Find and verify each prompt
-        let simple_found = prompts.iter().find(|p| p.name() == "simple_test").unwrap();
-        assert_eq!(simple_found.content(), "This is a simple prompt");
+        let simple_found = prompts.iter().find(|p| p.name == "simple_test").unwrap();
+        assert_eq!(simple_found.content, "This is a simple prompt");
         assert_eq!(
-            simple_found.tags(),
-            &vec!["simple".to_string(), "test".to_string()]
+            simple_found.tags,
+            vec!["simple".to_string(), "test".to_string()]
         );
-        match simple_found {
-            Prompt::Simple { .. } => {}
-            _ => panic!("Expected Simple prompt variant"),
-        }
 
         let template_found = prompts
             .iter()
-            .find(|p| p.name() == "template_test")
+            .find(|p| p.name == "template_test")
             .unwrap();
         assert_eq!(
-            template_found.content(),
+            template_found.content,
             "Hello {{name}}, welcome to {{prompt:greeting}}!"
         );
         assert_eq!(
-            template_found.tags(),
-            &vec!["template".to_string(), "test".to_string()]
+            template_found.tags,
+            vec!["template".to_string(), "test".to_string()]
         );
-        match template_found {
-            Prompt::Template { .. } => {}
-            _ => panic!("Expected Template prompt variant"),
-        }
 
         // Get prompts by "another" tag (should return 1 prompt)
         let result = storage.get_prompts_by_tag(&["another".to_string()]);
@@ -982,9 +936,9 @@ mod tests {
         assert_eq!(prompts.len(), 1);
 
         let another_found = prompts.first().unwrap();
-        assert_eq!(another_found.name(), "another_test");
-        assert_eq!(another_found.content(), "This is another prompt");
-        assert_eq!(another_found.tags(), &vec!["another".to_string()]);
+        assert_eq!(another_found.name, "another_test");
+        assert_eq!(another_found.content, "This is another prompt");
+        assert_eq!(another_found.tags, vec!["another".to_string()]);
 
         // Get prompts by a tag that doesn't exist (should return 0 prompts)
         let result = storage.get_prompts_by_tag(&["nonexistent".to_string()]);
@@ -1000,10 +954,10 @@ mod tests {
         let prompts = result.unwrap();
         assert_eq!(prompts.len(), 2);
 
-        let simple_found = prompts.iter().find(|p| p.name() == "simple_test").unwrap();
-        let another_found = prompts.iter().find(|p| p.name() == "another_test").unwrap();
-        assert_eq!(simple_found.name(), "simple_test");
-        assert_eq!(another_found.name(), "another_test");
+        let simple_found = prompts.iter().find(|p| p.name == "simple_test").unwrap();
+        let another_found = prompts.iter().find(|p| p.name == "another_test").unwrap();
+        assert_eq!(simple_found.name, "simple_test");
+        assert_eq!(another_found.name, "another_test");
     }
 
     #[test]
@@ -1029,11 +983,11 @@ mod tests {
         };
 
         // Create a valid prompt with a tag
-        let prompt = Prompt::new_simple(
+        let prompt = Prompt::new(
             "valid_prompt".to_string(),
             "This is a valid prompt".to_string(),
             vec!["valid".to_string()],
-        );
+        ).expect("Failed to create prompt");
         storage.save_prompt(&prompt).unwrap();
 
         // Create an invalid TOML file

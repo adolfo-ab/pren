@@ -6,17 +6,17 @@ use std::collections::HashMap;
 use std::error::Error;
 use pren_core::prompt::Prompt;
 use pren_core::registry::PromptStorage;
-use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum, ValueHint};
+use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 use clap_complete::CompleteEnv;
 use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
 
 
-fn prompt_names(current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
+fn prompt_names(_current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
     let storage = initialize_storage(std::env::var("PREN_STORAGE_PATH").ok());
 
     let prompts = storage.get_prompts();
     match prompts {
-        Ok(prompts) => prompts.iter().map(|prompt| CompletionCandidate::new(prompt.name())).collect(),
+        Ok(prompts) => prompts.iter().map(|prompt| CompletionCandidate::new(&prompt.name)).collect(),
         Err(_) => vec![CompletionCandidate::new("")]
     }
 }
@@ -49,8 +49,6 @@ pub enum Commands {
         content: String,
         #[arg(short = 't', long, value_delimiter = ',')]
         tags: Vec<String>,
-        #[arg(short = 's', long, value_parser=["simple", "template"])]
-        prompt_type: String,
         #[arg(short = 'o', long)]
         overwrite: bool,
     },
@@ -79,11 +77,11 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     CompleteEnv::with_factory(Cli::command).complete();
-    let mut cli = Cli::parse();
+    let cli = Cli::parse();
     let _storage = initialize_storage(cli.storage_path);
 
     match cli.command {
-        Commands::Add { name, content, prompt_type,  tags, overwrite} => {
+        Commands::Add { name, content,  tags, overwrite} => {
             match _storage.get_prompt(&name) {
                 Ok(_p) => {
                     if !overwrite {
@@ -93,11 +91,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 Err(_) => {},
             };
-            match prompt_type.as_str() {
-                "simple" => Ok(_storage.save_prompt(&Prompt::new_simple(name.to_string(), content.to_string(), tags.clone()))?),
-                "template" => Ok(_storage.save_prompt(&Prompt::new_template(name.to_string(), content.to_string(), tags.clone())?)?),
-                _ => Err("Invalid prompt type, must be 'simple' or 'template'".into())
-            }
+            // Create the prompt using the new unified constructor
+            let prompt = Prompt::new(name.to_string(), content.to_string(), tags.clone())?;
+            Ok(_storage.save_prompt(&prompt)?)
         }
         Commands::Get { name, args: kv_args } => {
             match _storage.get_prompt(&name) {
@@ -120,7 +116,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             match prompts {
                 Ok(p) => {
                     for prompt in p {
-                        println!("Prompt name: {}", prompt.name());
+                        println!("Prompt name: {}", prompt.name);
                     }
                     Ok(())
                 },

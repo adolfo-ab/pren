@@ -16,8 +16,6 @@ pub struct PromptFile {
     pub name: String,
     /// Tags associated with the prompt.
     pub tags: Vec<String>,
-    /// The type of prompt ("simple" or "template").
-    pub prompt_type: String,
     /// The content of the prompt.
     pub content: String,
 }
