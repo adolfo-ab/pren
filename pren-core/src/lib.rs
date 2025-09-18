@@ -25,17 +25,17 @@
 //! let temp_dir = TempDir::new().unwrap();
 //! 
 //! // Create a prompt
-//! let prompt = Prompt::new_simple(
+//! let prompt = Prompt::new(
 //!     "greeting".to_string(),
 //!     "Hello, world!".to_string(),
 //!     vec!["example".to_string()]
-//! );
+//! ).expect("Failed to create prompt");
 //! 
 //! // Save it to file storage
 //! let storage = FileStorage {
 //!     base_path: temp_dir.path().to_path_buf(),
 //! };
-//! storage.save_prompt(&prompt).unwrap();
+//! storage.save_prompt(&prompt).expect("Failed to save prompt");
 //! ```
 
 pub mod parser;

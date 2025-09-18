@@ -24,14 +24,14 @@
 //! };
 //! 
 //! // Create a simple prompt
-//! let prompt = Prompt::new_simple(
+//! let prompt = Prompt::new(
 //!     "greeting".to_string(),
 //!     "Hello, world!".to_string(),
 //!     vec!["example".to_string()]
-//! );
+//! ).expect("Failed to create prompt");
 //! 
 //! // Save the prompt to disk
-//! storage.save_prompt(&prompt);
+//! storage.save_prompt(&prompt).expect("Failed to save prompt");
 //! ```
 
 use crate::prompt::{ParseTemplateError, Prompt};

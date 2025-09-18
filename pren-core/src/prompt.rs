@@ -17,11 +17,11 @@
 //! ```rust
 //! use pren_core::prompt::Prompt;
 //!
-//! let prompt = Prompt::new_simple(
+//! let prompt = Prompt::new(
 //!     "greeting".to_string(),
 //!     "Hello, world!".to_string(),
 //!     vec!["example".to_string()]
-//! );
+//! ).expect("Failed to create prompt");
 //! ```
 //!
 //! Creating a template prompt:
@@ -29,7 +29,7 @@
 //! ```rust
 //! use pren_core::prompt::Prompt;
 //!
-//! let prompt = Prompt::new_template(
+//! let prompt = Prompt::new(
 //!     "personal_greeting".to_string(),
 //!     "Hello {{name}}, welcome to {{prompt:service_name}}!".to_string(),
 //!     vec!["example".to_string()]
@@ -39,8 +39,11 @@
 use crate::parser::parse_template;
 use crate::registry::PromptStorage;
 use nom::Err as NomErr;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
+
+/// Maximum allowed nesting depth for prompt templates
+const MAX_NESTING_DEPTH: usize = 3;
 
 #[derive(Debug, Clone)]
 pub struct Prompt {
@@ -76,7 +79,48 @@ impl std::fmt::Display for RenderTemplateError {
 
 impl Error for RenderTemplateError {}
 
-/// A part of a parsed template.
+/// A context for validating prompt templates during rendering, tracking visited prompts and current depth
+#[derive(Debug, Clone)]
+struct RenderValidationContext {
+    /// The names of prompts visited in the current rendering path (to detect circular references)
+    visited_prompts: HashSet<String>,
+    /// The current nesting depth
+    current_depth: usize,
+}
+
+impl RenderValidationContext {
+    fn new() -> Self {
+        RenderValidationContext {
+            visited_prompts: HashSet::new(),
+            current_depth: 0,
+        }
+    }
+
+    fn enter_prompt(&mut self, prompt_name: &str) -> Result<(), RenderTemplateError> {
+        // Check for circular references
+        if self.visited_prompts.contains(prompt_name) {
+            return Err(RenderTemplateError {
+                message: format!("Circular reference detected: prompt '{}' references itself (directly or indirectly)", prompt_name),
+            });
+        }
+
+        // Check depth limit
+        if self.current_depth >= MAX_NESTING_DEPTH {
+            return Err(RenderTemplateError {
+                message: format!("Maximum nesting depth of {} exceeded", MAX_NESTING_DEPTH),
+            });
+        }
+
+        self.visited_prompts.insert(prompt_name.to_string());
+        self.current_depth += 1;
+        Ok(())
+    }
+
+    fn exit_prompt(&mut self, prompt_name: &str) {
+        self.visited_prompts.remove(prompt_name);
+        self.current_depth -= 1;
+    }
+}
 #[derive(Debug, Clone, PartialEq)]
 pub enum PromptTemplatePart {
     /// Literal text that is rendered as-is.
@@ -200,6 +244,17 @@ impl PromptTemplate {
         arguments: &HashMap<String, String>,
         storage: &S,
     ) -> Result<String, RenderTemplateError> {
+        let mut context = RenderValidationContext::new();
+        self.render_internal(arguments, storage, &mut context)
+    }
+    
+    /// Internal rendering function with validation context
+    fn render_internal<S: PromptStorage>(
+        &self,
+        arguments: &HashMap<String, String>,
+        storage: &S,
+        context: &mut RenderValidationContext,
+    ) -> Result<String, RenderTemplateError> {
         let mut result = String::new();
 
         for part in &self.parts {
@@ -214,11 +269,15 @@ impl PromptTemplate {
                     }
                 },
                 PromptTemplatePart::PromptReference(name) => {
+                    // Validate before resolving the prompt reference
+                    context.enter_prompt(name)?;
+                    
                     match storage.get_prompt(name) {
                         Ok(prompt) => {
-                            match prompt.render(arguments, storage) {
+                            match prompt.template.render_internal(arguments, storage, context) {
                                 Ok(rendered) => result.push_str(&rendered),
                                 Err(e) => {
+                                    context.exit_prompt(name);
                                     return Err(RenderTemplateError {
                                         message: format!(
                                             "Failed to render referenced prompt '{}': {}",
@@ -229,6 +288,7 @@ impl PromptTemplate {
                             }
                         },
                         Err(e) => {
+                            context.exit_prompt(name);
                             return Err(RenderTemplateError {
                                 message: format!(
                                     "Error retrieving referenced prompt '{}': {}",
@@ -237,6 +297,9 @@ impl PromptTemplate {
                             });
                         }
                     }
+                    
+                    // Exit the prompt after successful rendering
+                    context.exit_prompt(name);
                 }
             }
         }
@@ -502,7 +565,7 @@ mod tests {
     }
 
     #[test]
-    fn test_render_template_with_nested_template_error() {
+    fn test_render_template_with_nested_template_success() {
         // Create a template prompt that will be referenced
         let nested_template_prompt = Prompt::new(
             "nested_template".to_string(),
@@ -526,12 +589,131 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("variable".to_string(), "value".to_string());
 
-        // Attempt to render, which should fail due to nested templates
+        // Attempt to render, which should succeed with our new implementation
         let result = main_prompt.render(&args, &storage);
         assert!(result.is_ok());
-        assert_eq!(
-            "Nested prompt templates are not allowed",
-            result.unwrap_err().message
-        );
+        assert_eq!("Referencing: This is a nested template with value", result.unwrap());
+    }
+
+    #[test]
+    fn test_render_template_with_circular_reference() {
+        // Create prompts that reference each other
+        let prompt_a = Prompt::new(
+            "prompt_a".to_string(),
+            "A {{prompt:prompt_b}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_a");
+
+        let prompt_b = Prompt::new(
+            "prompt_b".to_string(),
+            "B {{prompt:prompt_a}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_b");
+
+        // Set up storage with both prompts
+        let mut storage = MockStorage::new();
+        storage.add_prompt(prompt_a);
+        storage.add_prompt(prompt_b);
+
+        let args = HashMap::new();
+
+        // Try to render prompt_a, which should fail due to circular reference
+        let result = storage.get_prompt("prompt_a").unwrap().render(&args, &storage);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("Circular reference detected"));
+    }
+
+    #[test]
+    fn test_render_template_with_max_depth_exceeded() {
+        // Create prompts with nesting that exceeds the maximum depth
+        let prompt_level_0 = Prompt::new(
+            "prompt_level_0".to_string(),
+            "Level 0 {{prompt:prompt_level_1}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_level_0");
+
+        let prompt_level_1 = Prompt::new(
+            "prompt_level_1".to_string(),
+            "Level 1 {{prompt:prompt_level_2}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_level_1");
+
+        let prompt_level_2 = Prompt::new(
+            "prompt_level_2".to_string(),
+            "Level 2 {{prompt:prompt_level_3}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_level_2");
+
+        let prompt_level_3 = Prompt::new(
+            "prompt_level_3".to_string(),
+            "Level 3 {{prompt:prompt_level_4}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_level_3");
+
+        let prompt_level_4 = Prompt::new(
+            "prompt_level_4".to_string(),
+            "Level 4".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_level_4");
+
+        // Set up storage with all prompts
+        let mut storage = MockStorage::new();
+        storage.add_prompt(prompt_level_0);
+        storage.add_prompt(prompt_level_1);
+        storage.add_prompt(prompt_level_2);
+        storage.add_prompt(prompt_level_3);
+        storage.add_prompt(prompt_level_4);
+
+        let args = HashMap::new();
+
+        // Try to render prompt_level_0, which should fail due to exceeding max depth
+        let result = storage.get_prompt("prompt_level_0").unwrap().render(&args, &storage);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("Maximum nesting depth of 3 exceeded"));
+    }
+
+    #[test]
+    fn test_render_template_with_valid_depth() {
+        // Create prompts with nesting that is within the maximum depth
+        let prompt_level_0 = Prompt::new(
+            "prompt_level_0".to_string(),
+            "Level 0 {{prompt:prompt_level_1}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_level_0");
+
+        let prompt_level_1 = Prompt::new(
+            "prompt_level_1".to_string(),
+            "Level 1 {{prompt:prompt_level_2}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_level_1");
+
+        let prompt_level_2 = Prompt::new(
+            "prompt_level_2".to_string(),
+            "Level 2".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_level_2");
+
+        // Set up storage with all prompts
+        let mut storage = MockStorage::new();
+        storage.add_prompt(prompt_level_0);
+        storage.add_prompt(prompt_level_1);
+        storage.add_prompt(prompt_level_2);
+
+        let args = HashMap::new();
+
+        // Try to render prompt_level_0, which should succeed
+        let result = storage.get_prompt("prompt_level_0").unwrap().render(&args, &storage);
+        assert!(result.is_ok());
+        assert_eq!("Level 0 Level 1 Level 2", result.unwrap());
     }
 }
