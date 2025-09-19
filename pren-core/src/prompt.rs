@@ -30,7 +30,7 @@
 //! ```
 
 use crate::parser::parse_template;
-use crate::registry::PromptStorage;
+use crate::storage::PromptStorage;
 use nom::Err as NomErr;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -93,7 +93,10 @@ impl RenderValidationContext {
         // Check for circular references
         if self.visited_prompts.contains(prompt_name) {
             return Err(RenderTemplateError {
-                message: format!("Circular reference detected: prompt '{}' references itself (directly or indirectly)", prompt_name),
+                message: format!(
+                    "Circular reference detected: prompt '{}' references itself (directly or indirectly)",
+                    prompt_name
+                ),
             });
         }
 
@@ -152,11 +155,11 @@ impl Prompt {
     ) -> Result<Prompt, ParseTemplateError> {
         match parse_template(&content) {
             Ok((_, template)) => Ok(Prompt {
-                    name,
-                    content,
-                    template,
-                    tags
-                }),
+                name,
+                content,
+                template,
+                tags,
+            }),
             Err(NomErr::Error(e)) | Err(NomErr::Failure(e)) => Err(ParseTemplateError {
                 message: format!("Failed to parse template: {:?}", e),
             }),
@@ -170,7 +173,7 @@ impl Prompt {
         match parse_template(&content) {
             Ok((_, template)) => {
                 Ok(template.arguments().len() == 0 && template.prompt_references().len() == 0)
-            },
+            }
             Err(NomErr::Error(e)) | Err(NomErr::Failure(e)) => Err(ParseTemplateError {
                 message: format!("Failed to parse template: {:?}", e),
             }),
@@ -179,7 +182,6 @@ impl Prompt {
             }),
         }
     }
-
 
     /// Renders a prompt with the given arguments.
     ///
@@ -240,7 +242,7 @@ impl PromptTemplate {
         let mut context = RenderValidationContext::new();
         self.render_internal(arguments, storage, &mut context)
     }
-    
+
     /// Internal rendering function with validation context
     fn render_internal<S: PromptStorage>(
         &self,
@@ -264,7 +266,7 @@ impl PromptTemplate {
                 PromptTemplatePart::PromptReference(name) => {
                     // Validate before resolving the prompt reference
                     context.enter_prompt(name)?;
-                    
+
                     match storage.get_prompt(name) {
                         Ok(prompt) => {
                             match prompt.template.render_internal(arguments, storage, context) {
@@ -279,7 +281,7 @@ impl PromptTemplate {
                                     });
                                 }
                             }
-                        },
+                        }
                         Err(e) => {
                             context.exit_prompt(name);
                             return Err(RenderTemplateError {
@@ -290,7 +292,7 @@ impl PromptTemplate {
                             });
                         }
                     }
-                    
+
                     // Exit the prompt after successful rendering
                     context.exit_prompt(name);
                 }
@@ -426,7 +428,8 @@ mod tests {
             "simple".to_string(),
             "This is a simple prompt".to_string(),
             vec![],
-        ).expect("Failed to create simple prompt");
+        )
+        .expect("Failed to create simple prompt");
 
         let mut args = HashMap::new();
         args.insert("name".to_string(), "World".to_string());
@@ -515,11 +518,8 @@ mod tests {
 
     #[test]
     fn test_render_template_with_prompt_reference() {
-        let greeting_prompt = Prompt::new(
-            "greeting".to_string(),
-            "Hello!".to_string(),
-            vec![],
-        ).expect("Failed to create greeting prompt");
+        let greeting_prompt = Prompt::new("greeting".to_string(), "Hello!".to_string(), vec![])
+            .expect("Failed to create greeting prompt");
 
         let main_prompt = Prompt::new(
             "main".to_string(),
@@ -585,7 +585,10 @@ mod tests {
         // Attempt to render, which should succeed with our new implementation
         let result = main_prompt.render(&args, &storage);
         assert!(result.is_ok());
-        assert_eq!("Referencing: This is a nested template with value", result.unwrap());
+        assert_eq!(
+            "Referencing: This is a nested template with value",
+            result.unwrap()
+        );
     }
 
     #[test]
@@ -613,9 +616,17 @@ mod tests {
         let args = HashMap::new();
 
         // Try to render prompt_a, which should fail due to circular reference
-        let result = storage.get_prompt("prompt_a").unwrap().render(&args, &storage);
+        let result = storage
+            .get_prompt("prompt_a")
+            .unwrap()
+            .render(&args, &storage);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("Circular reference detected"));
+        assert!(
+            result
+                .unwrap_err()
+                .message
+                .contains("Circular reference detected")
+        );
     }
 
     #[test]
@@ -649,12 +660,9 @@ mod tests {
         )
         .expect("Failed to create prompt_level_3");
 
-        let prompt_level_4 = Prompt::new(
-            "prompt_level_4".to_string(),
-            "Level 4".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_level_4");
+        let prompt_level_4 =
+            Prompt::new("prompt_level_4".to_string(), "Level 4".to_string(), vec![])
+                .expect("Failed to create prompt_level_4");
 
         // Set up storage with all prompts
         let mut storage = MockStorage::new();
@@ -667,9 +675,17 @@ mod tests {
         let args = HashMap::new();
 
         // Try to render prompt_level_0, which should fail due to exceeding max depth
-        let result = storage.get_prompt("prompt_level_0").unwrap().render(&args, &storage);
+        let result = storage
+            .get_prompt("prompt_level_0")
+            .unwrap()
+            .render(&args, &storage);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("Maximum nesting depth of 3 exceeded"));
+        assert!(
+            result
+                .unwrap_err()
+                .message
+                .contains("Maximum nesting depth of 3 exceeded")
+        );
     }
 
     #[test]
@@ -689,12 +705,9 @@ mod tests {
         )
         .expect("Failed to create prompt_level_1");
 
-        let prompt_level_2 = Prompt::new(
-            "prompt_level_2".to_string(),
-            "Level 2".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_level_2");
+        let prompt_level_2 =
+            Prompt::new("prompt_level_2".to_string(), "Level 2".to_string(), vec![])
+                .expect("Failed to create prompt_level_2");
 
         // Set up storage with all prompts
         let mut storage = MockStorage::new();
@@ -705,7 +718,10 @@ mod tests {
         let args = HashMap::new();
 
         // Try to render prompt_level_0, which should succeed
-        let result = storage.get_prompt("prompt_level_0").unwrap().render(&args, &storage);
+        let result = storage
+            .get_prompt("prompt_level_0")
+            .unwrap()
+            .render(&args, &storage);
         assert!(result.is_ok());
         assert_eq!("Level 0 Level 1 Level 2", result.unwrap());
     }

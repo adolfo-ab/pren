@@ -1,23 +1,25 @@
 mod config;
 
-use arboard::Clipboard;
 use crate::config::initialize_storage;
-use std::collections::HashMap;
-use std::error::Error;
-use pren_core::prompt::Prompt;
-use pren_core::registry::PromptStorage;
+use arboard::Clipboard;
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 use clap_complete::CompleteEnv;
 use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
-
+use pren_core::prompt::Prompt;
+use pren_core::storage::PromptStorage;
+use std::collections::HashMap;
+use std::error::Error;
 
 fn prompt_names(_current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
     let storage = initialize_storage(std::env::var("PREN_STORAGE_PATH").ok());
 
     let prompts = storage.get_prompts();
     match prompts {
-        Ok(prompts) => prompts.iter().map(|prompt| CompletionCandidate::new(&prompt.name)).collect(),
-        Err(_) => vec![CompletionCandidate::new("")]
+        Ok(prompts) => prompts
+            .iter()
+            .map(|prompt| CompletionCandidate::new(&prompt.name))
+            .collect(),
+        Err(_) => vec![CompletionCandidate::new("")],
     }
 }
 
@@ -29,14 +31,14 @@ fn prompt_names(_current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
     author = "Adolfo AB, adolfo.ab@proton.me",
     version,
     about = "A prompt engine designed for reusability and composability",
-    long_about = "A prompt engine designed for reusability and composability",
+    long_about = "A prompt engine designed for reusability and composability"
 )]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
     // The storage path where pren prompts are stored
-    #[arg(long, short= 'p')]
+    #[arg(long, short = 'p')]
     storage_path: Option<String>,
 }
 
@@ -81,36 +83,45 @@ fn main() -> Result<(), Box<dyn Error>> {
     let _storage = initialize_storage(cli.storage_path);
 
     match cli.command {
-        Commands::Add { name, content,  tags, overwrite} => {
+        Commands::Add {
+            name,
+            content,
+            tags,
+            overwrite,
+        } => {
             match _storage.get_prompt(&name) {
                 Ok(_p) => {
                     if !overwrite {
-                        eprintln!("Error: Prompt '{}' already exists. Use --overwrite to replace it.", name);
+                        eprintln!(
+                            "Error: Prompt '{}' already exists. Use --overwrite to replace it.",
+                            name
+                        );
                         return Err(format!("Prompt '{}' already exists", name).into());
                     }
                 }
-                Err(_) => {},
+                Err(_) => {}
             };
             // Create the prompt using the new unified constructor
             let prompt = Prompt::new(name.to_string(), content.to_string(), tags.clone())?;
             Ok(_storage.save_prompt(&prompt)?)
         }
-        Commands::Get { name, args: kv_args } => {
-            match _storage.get_prompt(&name) {
-                Ok(prompt) => {
-                    let mut clipboard = Clipboard::new()?;
-                    let args_map: HashMap<String, String> = kv_args.iter().cloned().collect();
-                    let rendered_prompt = prompt.render(&args_map, &_storage)?;
-                    println!("{}", rendered_prompt);
-                    clipboard.set_text(rendered_prompt)?;
-                    Ok(())
-                }
-                Err(e) => {
-                    eprintln!("Error retrieving prompt '{}': {}", name, e);
-                    Err(e.into())
-                }
+        Commands::Get {
+            name,
+            args: kv_args,
+        } => match _storage.get_prompt(&name) {
+            Ok(prompt) => {
+                let mut clipboard = Clipboard::new()?;
+                let args_map: HashMap<String, String> = kv_args.iter().cloned().collect();
+                let rendered_prompt = prompt.render(&args_map, &_storage)?;
+                println!("{}", rendered_prompt);
+                clipboard.set_text(rendered_prompt)?;
+                Ok(())
             }
-        }
+            Err(e) => {
+                eprintln!("Error retrieving prompt '{}': {}", name, e);
+                Err(e.into())
+            }
+        },
         Commands::List => {
             let prompts = _storage.get_prompts();
             match prompts {
@@ -119,44 +130,41 @@ fn main() -> Result<(), Box<dyn Error>> {
                         println!("Prompt name: {}", prompt.name);
                     }
                     Ok(())
-                },
+                }
                 Err(e) => {
                     eprintln!("Error retrieving prompts: '{}'", e);
                     Err(e.into())
                 }
             }
         }
-        Commands::Delete { name, force } => {
-            match _storage.get_prompt(&name) {
-                Ok(_prompt) => {
-                    if !force {
-                        println!("Are you sure you want to delete prompt '{}'? [y/N]", name);
-                        let mut input = String::new();
-                        std::io::stdin().read_line(&mut input)?;
-                        let input = input.trim().to_lowercase();
-                        if input != "y" && input != "yes" {
-                            println!("Delete operation cancelled.");
-                            return Ok(());
-                        }
-                    }
-                    
-                    match _storage.delete_prompt(&name) {
-                        Ok(()) => {
-                            println!("Prompt '{}' deleted successfully.", name);
-                            Ok(())
-                        }
-                        Err(e) => {
-                            eprintln!("Error deleting prompt '{}': {}", name, e);
-                            Err(e.into())
-                        }
+        Commands::Delete { name, force } => match _storage.get_prompt(&name) {
+            Ok(_prompt) => {
+                if !force {
+                    println!("Are you sure you want to delete prompt '{}'? [y/N]", name);
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input)?;
+                    let input = input.trim().to_lowercase();
+                    if input != "y" && input != "yes" {
+                        println!("Delete operation cancelled.");
+                        return Ok(());
                     }
                 }
-                Err(e) => {
-                    eprintln!("Error retrieving prompt '{}': {}", name, e);
-                    Err(e.into())
+
+                match _storage.delete_prompt(&name) {
+                    Ok(()) => {
+                        println!("Prompt '{}' deleted successfully.", name);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        eprintln!("Error deleting prompt '{}': {}", name, e);
+                        Err(e.into())
+                    }
                 }
             }
+            Err(e) => {
+                eprintln!("Error retrieving prompt '{}': {}", name, e);
+                Err(e.into())
+            }
         },
-
     }
 }

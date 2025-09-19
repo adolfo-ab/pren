@@ -1,48 +1,60 @@
 //! # File Storage
-//! 
+//!
 //! This module provides functionality for storing and retrieving prompts from the local filesystem.
 //! Prompts are stored as individual TOML files in a specified directory.
-//! 
+//!
 //! The main component of this module is the [`FileStorage`] struct, which implements the
 //! [`PromptStorage`] trait to provide persistent storage capabilities for prompts.
-//! 
+//!
 //! # Examples
-//! 
+//!
 //! ```rust
 //! use pren_core::file_storage::FileStorage;
 //! use pren_core::prompt::Prompt;
-//! use pren_core::registry::PromptStorage;
+//! use pren_core::storage::PromptStorage;
 //! use std::path::PathBuf;
 //! use tempfile::TempDir;
-//! 
+//!
 //! // Create a temporary directory for our tests
 //! let temp_dir = TempDir::new().unwrap();
-//! 
+//!
 //! // Create a new file storage instance
 //! let storage = FileStorage {
 //!     base_path: temp_dir.path().to_path_buf(),
 //! };
-//! 
+//!
 //! // Create a simple prompt
 //! let prompt = Prompt::new(
 //!     "greeting".to_string(),
 //!     "Hello, world!".to_string(),
 //!     vec!["example".to_string()]
 //! ).expect("Failed to create prompt");
-//! 
+//!
 //! // Save the prompt to disk
 //! storage.save_prompt(&prompt).expect("Failed to save prompt");
 //! ```
 
 use crate::prompt::{ParseTemplateError, Prompt};
-use crate::registry::{PromptFile, PromptStorage};
+use crate::storage::PromptStorage;
+use dirs::home_dir;
+use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs::create_dir_all;
 use std::path::PathBuf;
 use std::{fmt, fs, io};
-use dirs::home_dir;
 use toml;
 use walkdir::WalkDir;
+
+/// Represents a prompt stored in a TOML file.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PromptFile {
+    /// The name of the prompt.
+    pub name: String,
+    /// Tags associated with the prompt.
+    pub tags: Vec<String>,
+    /// The content of the prompt.
+    pub content: String,
+}
 
 #[derive(Debug)]
 pub enum FileStorageError {
@@ -125,8 +137,12 @@ impl Default for FileStorage {
     fn default() -> Self {
         let base_path = home_dir();
         match base_path {
-            Some(p) => Self { base_path: p.join("pren-prompts") },
-            None => Self { base_path: PathBuf::from("pren-prompts") }
+            Some(p) => Self {
+                base_path: p.join("pren-prompts"),
+            },
+            None => Self {
+                base_path: PathBuf::from("pren-prompts"),
+            },
         }
     }
 }
@@ -286,7 +302,10 @@ impl FileStorage {
         Ok(())
     }
 
-    fn create_prompt_from_file(&self, prompt_file: PromptFile) -> Result<Prompt, ParseTemplateError> {
+    fn create_prompt_from_file(
+        &self,
+        prompt_file: PromptFile,
+    ) -> Result<Prompt, ParseTemplateError> {
         Prompt::new(prompt_file.name, prompt_file.content, prompt_file.tags)
     }
 
@@ -320,7 +339,8 @@ mod tests {
             "test_prompt".to_string(),
             "This is a test prompt".to_string(),
             vec!["tag1".to_string(), "tag2".to_string()],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
 
         let result = storage.save_prompt(&prompt);
 
@@ -395,7 +415,8 @@ mod tests {
         // Directory should not exist yet
         assert!(!prompts_dir.exists());
 
-        let prompt = Prompt::new("dir_test".to_string(), "Test content".to_string(), vec![]).expect("Failed to create prompt");
+        let prompt = Prompt::new("dir_test".to_string(), "Test content".to_string(), vec![])
+            .expect("Failed to create prompt");
 
         let result = storage.save_prompt(&prompt);
 
@@ -418,7 +439,8 @@ mod tests {
             "overwrite_test".to_string(),
             "First version".to_string(),
             vec!["v1".to_string()],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
         let result1 = storage.save_prompt(&prompt1);
         assert!(result1.is_ok());
 
@@ -427,7 +449,8 @@ mod tests {
             "overwrite_test".to_string(),
             "Second version".to_string(),
             vec!["v2".to_string()],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
         let result2 = storage.save_prompt(&prompt2);
         assert!(result2.is_ok());
 
@@ -480,7 +503,8 @@ mod tests {
             base_path: file_path,
         };
 
-        let prompt = Prompt::new("test".to_string(), "content".to_string(), vec![]).expect("Failed to create prompt");
+        let prompt = Prompt::new("test".to_string(), "content".to_string(), vec![])
+            .expect("Failed to create prompt");
 
         let result = storage.save_prompt(&prompt);
         assert!(result.is_err());
@@ -498,7 +522,8 @@ mod tests {
             "load_test_simple".to_string(),
             "This is a simple prompt for loading".to_string(),
             vec!["test".to_string(), "simple".to_string()],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
         storage.save_prompt(&original_prompt).unwrap();
 
         // Now load it back
@@ -507,10 +532,7 @@ mod tests {
 
         let loaded_prompt = result.unwrap();
         assert_eq!(loaded_prompt.name, "load_test_simple");
-        assert_eq!(
-            loaded_prompt.content,
-            "This is a simple prompt for loading"
-        );
+        assert_eq!(loaded_prompt.content, "This is a simple prompt for loading");
         assert_eq!(
             loaded_prompt.tags,
             vec!["test".to_string(), "simple".to_string()]
@@ -667,7 +689,8 @@ mod tests {
             "no_tags_test".to_string(),
             "Content without tags".to_string(),
             vec![],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
         storage.save_prompt(&prompt).unwrap();
 
         // Load it back
@@ -732,7 +755,8 @@ mod tests {
             "special_chars_test".to_string(),
             special_content.to_string(),
             vec!["special".to_string(), "unicode".to_string()],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
         storage.save_prompt(&original_prompt).unwrap();
 
         // Load it back
@@ -755,7 +779,8 @@ mod tests {
             "delete_test".to_string(),
             "This is a test prompt for deletion".to_string(),
             vec!["test".to_string(), "delete".to_string()],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
         storage.save_prompt(&prompt).unwrap();
 
         // Verify the file exists
@@ -786,7 +811,8 @@ mod tests {
             "simple_test".to_string(),
             "This is a simple prompt".to_string(),
             vec!["simple".to_string(), "test".to_string()],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
         storage.save_prompt(&simple_prompt).unwrap();
 
         let template_prompt = Prompt::new(
@@ -812,10 +838,7 @@ mod tests {
             vec!["simple".to_string(), "test".to_string()]
         );
 
-        let template_found = prompts
-            .iter()
-            .find(|p| p.name == "template_test")
-            .unwrap();
+        let template_found = prompts.iter().find(|p| p.name == "template_test").unwrap();
         assert_eq!(
             template_found.content,
             "Hello {{name}}, welcome to {{prompt:greeting}}!"
@@ -853,7 +876,8 @@ mod tests {
             "valid_prompt".to_string(),
             "This is a valid prompt".to_string(),
             vec!["valid".to_string()],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
         storage.save_prompt(&prompt).unwrap();
 
         // Create an invalid TOML file
@@ -882,7 +906,8 @@ mod tests {
             "simple_test".to_string(),
             "This is a simple prompt".to_string(),
             vec!["simple".to_string(), "test".to_string()],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
         storage.save_prompt(&simple_prompt).unwrap();
 
         let template_prompt = Prompt::new(
@@ -897,7 +922,8 @@ mod tests {
             "another_test".to_string(),
             "This is another prompt".to_string(),
             vec!["another".to_string()],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
         storage.save_prompt(&another_prompt).unwrap();
 
         // Get prompts by "test" tag (should return 2 prompts)
@@ -915,10 +941,7 @@ mod tests {
             vec!["simple".to_string(), "test".to_string()]
         );
 
-        let template_found = prompts
-            .iter()
-            .find(|p| p.name == "template_test")
-            .unwrap();
+        let template_found = prompts.iter().find(|p| p.name == "template_test").unwrap();
         assert_eq!(
             template_found.content,
             "Hello {{name}}, welcome to {{prompt:greeting}}!"
@@ -987,7 +1010,8 @@ mod tests {
             "valid_prompt".to_string(),
             "This is a valid prompt".to_string(),
             vec!["valid".to_string()],
-        ).expect("Failed to create prompt");
+        )
+        .expect("Failed to create prompt");
         storage.save_prompt(&prompt).unwrap();
 
         // Create an invalid TOML file
