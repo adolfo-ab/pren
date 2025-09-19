@@ -3,13 +3,6 @@
 //! This module provides core functionality for managing prompts, including both simple prompts
 //! and template-based prompts with variable substitution.
 //!
-//! # Prompt Types
-//!
-//! There are two types of prompts:
-//! - [`Prompt::Simple`] - Plain text prompts without any templating
-//! - [`Prompt::Template`] - Prompts with template syntax that supports variable substitution
-//!   and references to other prompts
-//!
 //! # Examples
 //!
 //! Creating a simple prompt:
