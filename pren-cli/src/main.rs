@@ -114,14 +114,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             name,
         } => match storage.get_prompt(&name) {
             Ok(prompt) => {
-                println!("{}", prompt.content);
+                println!("Name: {}", prompt.name);
+                println!("Tags: {:?}", prompt.tags);
+                println!("Created: {}", prompt.creation_date.format("%d/%m/%Y %H:%M"));
+                println!("Content:\n{}", prompt.content);
                 Ok(())
             }
             Err(e) => {
                 eprintln!("Error retrieving prompt '{}': {}", name, e);
                 Err(e.into())
             }
-        }
+        },
         Commands::Get {
             name,
             args: kv_args,
