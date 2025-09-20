@@ -785,4 +785,127 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!("Level 0 Level 1 Level 2", result.unwrap());
     }
+
+    #[test]
+    fn test_render_template_with_variable_prompt_reference() {
+        // Create a prompt that will be referenced dynamically
+        let dynamic_prompt = Prompt::new(
+            "greeting".to_string(),
+            "Hello {{name}}!".to_string(),
+            vec![],
+        )
+        .expect("Failed to create dynamic prompt");
+
+        // Create a main template that uses a variable prompt reference
+        let main_prompt = Prompt::new(
+            "main".to_string(),
+            "Message: {{prompt_var:prompt_name}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create template prompt with variable reference");
+
+        // Set up storage with the dynamic prompt
+        let mut storage = MockStorage::new();
+        storage.add_prompt(dynamic_prompt);
+
+        // Provide the argument that specifies which prompt to reference
+        let mut args = HashMap::new();
+        args.insert("prompt_name".to_string(), "greeting".to_string());
+        args.insert("name".to_string(), "Alice".to_string());
+
+        let rendered = main_prompt
+            .render(&args, &storage)
+            .expect("Failed to render template prompt with variable reference");
+        assert_eq!("Message: Hello Alice!", rendered);
+    }
+
+    #[test]
+    fn test_variable_prompt_references() {
+        let template_prompt = Prompt::new(
+            "template".to_string(),
+            "Use {{prompt_var:first}} and {{prompt_var:second}} for dynamic content".to_string(),
+            vec![],
+        )
+        .expect("Failed to create template prompt");
+
+        let variable_refs = template_prompt.template.variable_prompt_references();
+        assert_eq!(variable_refs.len(), 2);
+        assert!(variable_refs.contains(&&"first".to_string()));
+        assert!(variable_refs.contains(&&"second".to_string()));
+    }
+
+    #[test]
+    fn test_render_template_with_missing_variable_prompt_reference() {
+        let template_prompt = Prompt::new(
+            "template".to_string(),
+            "Message: {{prompt_var:missing_prompt}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create template prompt");
+
+        let mut args = HashMap::new();
+        args.insert("missing_prompt".to_string(), "nonexistent".to_string());
+
+        let storage = MockStorage::new();
+        let result = template_prompt.render(&args, &storage);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_render_template_with_variable_prompt_reference_missing_argument() {
+        let template_prompt = Prompt::new(
+            "template".to_string(),
+            "Message: {{prompt_var:prompt_name}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create template prompt");
+
+        let args = HashMap::new(); // Missing the "prompt_name" argument
+
+        let storage = MockStorage::new();
+        let result = template_prompt.render(&args, &storage);
+        assert!(result.is_err());
+        assert_eq!("Missing argument: prompt_name", result.unwrap_err().message);
+    }
+
+    #[test]
+    fn test_render_template_with_variable_prompt_reference_circular_reference() {
+        // Create prompts that reference each other circularly
+        let prompt_a = Prompt::new(
+            "prompt_a".to_string(),
+            "A {{prompt_var:ref_prompt}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_a");
+
+        let prompt_b = Prompt::new(
+            "prompt_b".to_string(),
+            "B {{name}}".to_string(),
+            vec![],
+        )
+        .expect("Failed to create prompt_b");
+
+        // Set up storage with both prompts
+        let mut storage = MockStorage::new();
+        storage.add_prompt(prompt_a);
+        storage.add_prompt(prompt_b);
+
+        // Set up arguments where prompt_name refers back to prompt_a (circular)
+        let mut args = HashMap::new();
+        args.insert("ref_prompt".to_string(), "prompt_a".to_string()); // Circular reference
+        args.insert("name".to_string(), "Alice".to_string());
+
+        // Try to render prompt_a, which should fail due to circular reference
+        let result = storage
+            .get_prompt("prompt_a")
+            .unwrap()
+            .render(&args, &storage);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .message
+                .contains("Circular reference detected")
+        );
+    }
 }

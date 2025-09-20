@@ -6,7 +6,7 @@
 //! - [`PromptStorage`] trait - Defines the interface for storing and retrieving prompts
 
 use crate::prompt::Prompt;
-use serde::{Deserialize, Serialize};
+// Required for Error trait implementation
 
 /// A trait for storing and retrieving prompts.
 ///

@@ -238,6 +238,44 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_variable_prompt_reference() {
+        let result = parse_variable_prompt_reference("{{prompt_var:dynamic_prompt}} is the prompt");
+        assert_eq!(result, Ok((" is the prompt", "dynamic_prompt")));
+    }
+
+    #[test]
+    fn test_parse_invalid_variable_prompt_reference() {
+        let result = parse_variable_prompt_reference("{{prompt_var:basic:prompt}} is the prompt");
+        assert!(
+            result.is_err(),
+            "Expected parse to fail due to non-alphanumeric character"
+        );
+    }
+
+    #[test]
+    fn test_parse_variable_prompt_reference_max_length() {
+        let max_length_id = "a".repeat(64);
+        let input = format!("{{{{prompt_var:{}}}}}", max_length_id);
+        let result = parse_variable_prompt_reference(&input);
+        assert!(result.is_ok(), "64-character variable prompt reference should work");
+        assert_eq!(result.unwrap().1, max_length_id.as_str());
+    }
+
+    #[test]
+    fn test_parse_variable_prompt_reference_too_long() {
+        let too_long_id = "a".repeat(65);
+        let input = format!("{{{{prompt_var:{}}}}}", too_long_id);
+        let result = parse_variable_prompt_reference(&input);
+        assert!(result.is_err(), "65-character variable prompt reference should fail");
+    }
+
+    #[test]
+    fn test_parse_empty_variable_prompt_reference() {
+        let result = parse_variable_prompt_reference("{{prompt_var:}}");
+        assert!(result.is_err(), "Empty variable prompt reference should fail");
+    }
+
+    #[test]
     fn test_parse_escaped_literal() {
         let result = parse_escaped_literal("{{{{he{llo wo}rld}}}} more text");
         assert_eq!(result, Ok((" more text", "he{llo wo}rld")));
@@ -283,6 +321,27 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_element_variable_prompt_reference() {
+        let result = parse_element("{{prompt_var:dynamic_prompt}}");
+        assert_eq!(
+            result,
+            Ok((
+                "",
+                PromptTemplatePart::VariablePromptReference(String::from("dynamic_prompt"))
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_element_invalid_variable_prompt_reference() {
+        let result = parse_element("{{prompt_var:u$ername}}");
+        assert!(
+            result.is_err(),
+            "Expected parse to fail due to non-alphanumeric character"
+        );
+    }
+
+    #[test]
     fn test_parse_element_literal() {
         let result = parse_element("username");
         assert_eq!(
@@ -313,6 +372,23 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_template_with_variable_prompt_reference() {
+        let result = parse_template("Use {{prompt_var:dynamic_prompt}} for dynamic content");
+        assert!(result.is_ok());
+        let (remaining, template) = result.unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(template.parts.len(), 3);
+        
+        // Check that the middle part is a VariablePromptReference
+        match &template.parts[1] {
+            PromptTemplatePart::VariablePromptReference(prompt_name) => {
+                assert_eq!("dynamic_prompt", prompt_name);
+            }
+            _ => panic!("Expected VariablePromptReference part"),
+        }
+    }
+
+    #[test]
     fn test_parse_invalid_template() {
         let result = parse_template("Hello {{n@me}}, welcome to {{prompt:greeting}}!");
         assert!(result.is_err());
@@ -325,6 +401,45 @@ mod tests {
         let (remaining, template) = result.unwrap();
         assert_eq!(remaining, "");
         assert_eq!(template.parts.len(), 5); // Literal, Literal, Argument
+    }
+
+    #[test]
+    fn test_parse_template_with_mixed_prompt_references() {
+        let result = parse_template("{{prompt:static}} and {{prompt_var:dynamic}} together");
+        assert!(result.is_ok());
+        let (remaining, template) = result.unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(template.parts.len(), 4);
+        
+        // Check the first prompt reference
+        match &template.parts[0] {
+            PromptTemplatePart::PromptReference(prompt_name) => {
+                assert_eq!("static", prompt_name);
+            }
+            _ => panic!("Expected PromptReference part"),
+        }
+        
+        // Check the literal parts
+        match &template.parts[1] {
+            PromptTemplatePart::Literal(text) => {
+                assert_eq!(" and ", text);
+            }
+            _ => panic!("Expected Literal part"),
+        }
+        
+        match &template.parts[2] {
+            PromptTemplatePart::VariablePromptReference(prompt_name) => {
+                assert_eq!("dynamic", prompt_name);
+            }
+            _ => panic!("Expected VariablePromptReference part"),
+        }
+        
+        match &template.parts[3] {
+            PromptTemplatePart::Literal(text) => {
+                assert_eq!(" together", text);
+            }
+            _ => panic!("Expected Literal part"),
+        }
     }
 
     #[test]
