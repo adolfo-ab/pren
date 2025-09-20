@@ -128,6 +128,8 @@ pub enum PromptTemplatePart {
     Argument(String),
     /// A reference to another prompt that gets rendered at render time.
     PromptReference(String),
+    /// A variable reference to another prompt that gets rendered at render time.
+    VariablePromptReference(String),
 }
 
 /// A parsed template with parts that can be literals, arguments, or prompt references.
@@ -238,6 +240,19 @@ impl PromptTemplate {
             .collect()
     }
 
+    pub fn variable_prompt_references(&self) -> Vec<&String> {
+        self.parts
+            .iter()
+            .filter_map(|part| {
+                if let PromptTemplatePart::VariablePromptReference(prompt) = part {
+                    Some(prompt)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     pub fn render<S: PromptStorage>(
         &self,
         arguments: &HashMap<String, String>,
@@ -299,7 +314,48 @@ impl PromptTemplate {
 
                     // Exit the prompt after successful rendering
                     context.exit_prompt(name);
-                }
+                },
+                PromptTemplatePart::VariablePromptReference(name) => match arguments.get(name) {
+                    Some(value) => {
+
+                        // Validate before resolving the prompt reference
+                        context.enter_prompt(value)?;
+
+                        match storage.get_prompt(value) {
+                            Ok(prompt) => {
+                                match prompt.template.render_internal(arguments, storage, context) {
+                                    Ok(rendered) => result.push_str(&rendered),
+                                    Err(e) => {
+                                        context.exit_prompt(value);
+                                        return Err(RenderTemplateError {
+                                            message: format!(
+                                                "Failed to render referenced prompt '{}': {}",
+                                                name, e.message
+                                            ),
+                                        });
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                context.exit_prompt(value);
+                                return Err(RenderTemplateError {
+                                    message: format!(
+                                        "Error retrieving referenced prompt '{}': {}",
+                                        value, e
+                                    ),
+                                });
+                            }
+                        }
+
+                        // Exit the prompt after successful rendering
+                        context.exit_prompt(name);
+                    },
+                    None => {
+                        return Err(RenderTemplateError {
+                            message: format!("Missing argument: {}", name),
+                        });
+                    }
+                },
             }
         }
         Ok(result)

@@ -45,6 +45,9 @@ pub fn parse_element(input: &str) -> IResult<&str, PromptTemplatePart> {
         map(parse_escaped_literal, |text| {
             PromptTemplatePart::Literal(text.to_string())
         }),
+        map(parse_variable_prompt_reference, |text| {
+            PromptTemplatePart::VariablePromptReference(text.to_string())
+        }),
         map(parse_prompt_reference, |name| {
             PromptTemplatePart::PromptReference(name.to_string())
         }),
@@ -74,6 +77,20 @@ pub fn parse_literal_text(input: &str) -> IResult<&str, &str> {
 /// * `Err` - If parsing fails.
 pub fn parse_argument(input: &str) -> IResult<&str, &str> {
     delimited(tag("{{"), identifier, tag("}}")).parse(input)
+}
+
+/// Parses a variable prompt reference (e.g., `{{prompt:name}}`).
+///
+/// # Arguments
+///
+/// * `input` - The input string to parse.
+///
+/// # Returns
+///
+/// * `Ok((remaining, name))` - The parsed prompt reference name.
+/// * `Err` - If parsing fails.
+pub fn parse_variable_prompt_reference(input: &str) -> IResult<&str, &str> {
+    delimited(tag("{{prompt_var:"), identifier, tag("}}")).parse(input)
 }
 
 /// Parses a prompt reference (e.g., `{{prompt:name}}`).
