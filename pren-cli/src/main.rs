@@ -58,6 +58,14 @@ pub enum Commands {
         #[arg(short = 'n', long, add = ArgValueCompleter::new(prompt_names))]
         name: String,
     },
+    Render {
+        #[arg(short = 'n', long, add = ArgValueCompleter::new(prompt_names))]
+        name: String,
+        #[arg(short = 'a', long, value_parser = parse_key_val, value_delimiter = ',')]
+        args: Vec<(String, String)>,
+        #[arg(short = 'c', long)]
+        copy: bool,
+    },
     Get {
         #[arg(short = 'n', long, add = ArgValueCompleter::new(prompt_names))]
         name: String,
@@ -125,16 +133,33 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Err(e.into())
             }
         },
+        Commands::Render {
+            name,
+            args: kv_args,
+            copy,
+        } => match storage.get_prompt(&name) {
+            Ok(prompt) => {
+                let args_map: HashMap<String, String> = kv_args.iter().cloned().collect();
+                let rendered_prompt = prompt.render(&args_map, &storage)?;
+                println!("{}", rendered_prompt);
+                if copy {
+                    Clipboard::new()?.set_text(rendered_prompt)?;
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Error retrieving prompt '{}': {}", name, e);
+                Err(e.into())
+            }
+        },
         Commands::Get {
             name,
             args: kv_args,
         } => match storage.get_prompt(&name) {
             Ok(prompt) => {
-                let mut clipboard = Clipboard::new()?;
                 let args_map: HashMap<String, String> = kv_args.iter().cloned().collect();
                 let rendered_prompt = prompt.render(&args_map, &storage)?;
-                println!("{}", rendered_prompt);
-                clipboard.set_text(rendered_prompt)?;
+                Clipboard::new()?.set_text(rendered_prompt)?;
                 Ok(())
             }
             Err(e) => {
@@ -190,6 +215,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("Prompt storage path: {:?}", storage.base_path);
             println!("Total number of prompts: {}", storage.get_prompts().unwrap().len());
             Ok(())
-        }
+        },
     }
 }
