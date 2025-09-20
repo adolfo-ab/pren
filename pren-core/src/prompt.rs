@@ -34,9 +34,11 @@ use crate::storage::PromptStorage;
 use nom::Err as NomErr;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use chrono::{DateTime, Local};
 
 /// Maximum allowed nesting depth for prompt templates
 const MAX_NESTING_DEPTH: usize = 3;
+
 
 #[derive(Debug, Clone)]
 pub struct Prompt {
@@ -44,6 +46,7 @@ pub struct Prompt {
     pub content: String,
     pub template: PromptTemplate,
     pub tags: Vec<String>,
+    pub creation_date: DateTime<Local>
 }
 
 #[derive(Debug)]
@@ -159,6 +162,7 @@ impl Prompt {
                 content,
                 template,
                 tags,
+                creation_date: Local::now(),
             }),
             Err(NomErr::Error(e)) | Err(NomErr::Failure(e)) => Err(ParseTemplateError {
                 message: format!("Failed to parse template: {:?}", e),
