@@ -7,9 +7,10 @@ use clap_complete::CompleteEnv;
 use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
 use pren_core::prompt::Prompt;
 use pren_core::storage::PromptStorage;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 
+// Custom completer for prompt names
 fn prompt_names(_current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
     let storage = initialize_storage(std::env::var("PREN_STORAGE_PATH").ok());
 
@@ -21,6 +22,65 @@ fn prompt_names(_current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
             .collect(),
         Err(_) => vec![CompletionCandidate::new("")],
     }
+}
+
+// Custom completer for template arguments
+fn prompt_args(current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
+    let current_str = current.to_string_lossy();
+
+    // Parse the current input to extract the prompt name from previous args
+    let args_strings: Vec<String> = std::env::args().collect();
+    let args: Vec<&str> = args_strings.iter().map(|s| s.as_str()).collect();
+
+    // Find the prompt name from the --name argument
+    let mut prompt_name = None;
+    for i in 0..args.len() {
+        if (args[i] == "-n" || args[i] == "--name") && i + 1 < args.len() {
+            prompt_name = Some(args[i + 1]);
+            break;
+        }
+    }
+
+    let Some(name) = prompt_name else {
+        return vec![CompletionCandidate::new("")];
+    };
+
+    // Get the prompt and extract its variables
+    let storage = initialize_storage(std::env::var("PREN_STORAGE_PATH").ok());
+    let Ok(prompt) = storage.get_prompt(name) else {
+        return vec![CompletionCandidate::new("")];
+    };
+
+    let prompt_args = prompt.template.arguments();
+
+    // Parse already provided arguments to avoid duplicates
+    let mut provided_keys = HashSet::new();
+    for arg in std::env::args() {
+        if let Some((key, _)) = arg.split_once('=') {
+            provided_keys.insert(key.to_string());
+        }
+    }
+
+    // If user is typing a new argument
+    if current_str.is_empty() || !current_str.contains('=') {
+        return prompt_args
+            .into_iter()
+            .filter(|var| !provided_keys.contains(*var))
+            .map(|var| {
+                CompletionCandidate::new(format!("{}=", var))
+            })
+            .collect();
+    }
+
+    // If user is in the middle of typing key=value, provide the key suggestions
+    if let Some((partial_key, _)) = current_str.split_once('=') {
+        let partial_key_string = partial_key.to_string();
+        if prompt_args.contains(&&partial_key_string) {  // Fixed: double reference
+            return vec![CompletionCandidate::new(current_str.to_string())];
+        }
+    }
+
+    vec![CompletionCandidate::new("")]
 }
 
 #[derive(Parser)]
@@ -61,7 +121,7 @@ pub enum Commands {
     Render {
         #[arg(short = 'n', long, add = ArgValueCompleter::new(prompt_names))]
         name: String,
-        #[arg(short = 'a', long, value_parser = parse_key_val, value_delimiter = ',')]
+        #[arg(short = 'a', long, value_parser = parse_key_val, value_delimiter = ',', add = ArgValueCompleter::new(prompt_args))]
         args: Vec<(String, String)>,
         #[arg(short = 'c', long)]
         copy: bool,
@@ -69,7 +129,7 @@ pub enum Commands {
     Get {
         #[arg(short = 'n', long, add = ArgValueCompleter::new(prompt_names))]
         name: String,
-        #[arg(short = 'a', long, value_parser = parse_key_val, value_delimiter = ',')]
+        #[arg(short = 'a', long, value_parser = parse_key_val, value_delimiter = ',', add = ArgValueCompleter::new(prompt_args))]
         args: Vec<(String, String)>,
     },
     List,
