@@ -283,72 +283,11 @@ impl PromptTemplate {
                     }
                 },
                 PromptTemplatePart::PromptReference(name) => {
-                    // Validate before resolving the prompt reference
-                    context.enter_prompt(name)?;
-
-                    match storage.get_prompt(name) {
-                        Ok(prompt) => {
-                            match prompt.template.render_internal(arguments, storage, context) {
-                                Ok(rendered) => result.push_str(&rendered),
-                                Err(e) => {
-                                    context.exit_prompt(name);
-                                    return Err(RenderTemplateError {
-                                        message: format!(
-                                            "Failed to render referenced prompt '{}': {}",
-                                            name, e.message
-                                        ),
-                                    });
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            context.exit_prompt(name);
-                            return Err(RenderTemplateError {
-                                message: format!(
-                                    "Error retrieving referenced prompt '{}': {}",
-                                    name, e
-                                ),
-                            });
-                        }
-                    }
-
-                    // Exit the prompt after successful rendering
-                    context.exit_prompt(name);
+                    self.render_prompt_reference(name, arguments, storage, context, &mut result, false)?;
                 },
                 PromptTemplatePart::VariablePromptReference(name) => match arguments.get(name) {
                     Some(value) => {
-
-                        // Validate before resolving the prompt reference
-                        context.enter_prompt(value)?;
-
-                        match storage.get_prompt(value) {
-                            Ok(prompt) => {
-                                match prompt.template.render_internal(arguments, storage, context) {
-                                    Ok(rendered) => result.push_str(&rendered),
-                                    Err(e) => {
-                                        context.exit_prompt(value);
-                                        return Err(RenderTemplateError {
-                                            message: format!(
-                                                "Failed to render referenced prompt '{}': {}",
-                                                name, e.message
-                                            ),
-                                        });
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                context.exit_prompt(value);
-                                return Err(RenderTemplateError {
-                                    message: format!(
-                                        "Error retrieving referenced prompt '{}': {}",
-                                        value, e
-                                    ),
-                                });
-                            }
-                        }
-
-                        // Exit the prompt after successful rendering
-                        context.exit_prompt(name);
+                        self.render_prompt_reference(value, arguments, storage, context, &mut result, true)?;
                     },
                     None => {
                         return Err(RenderTemplateError {
@@ -359,6 +298,53 @@ impl PromptTemplate {
             }
         }
         Ok(result)
+    }
+
+    /// Helper function to render a prompt reference
+    fn render_prompt_reference<S: PromptStorage>(
+        &self,
+        prompt_name: &str,
+        arguments: &HashMap<String, String>,
+        storage: &S,
+        context: &mut RenderValidationContext,
+        result: &mut String,
+        is_variable_reference: bool,
+    ) -> Result<(), RenderTemplateError> {
+        // Validate before resolving the prompt reference
+        context.enter_prompt(prompt_name)?;
+
+        match storage.get_prompt(prompt_name) {
+            Ok(prompt) => {
+                match prompt.template.render_internal(arguments, storage, context) {
+                    Ok(rendered) => result.push_str(&rendered),
+                    Err(e) => {
+                        context.exit_prompt(prompt_name);
+                        return Err(RenderTemplateError {
+                            message: format!(
+                                "Failed to render referenced prompt '{}': {}",
+                                prompt_name, e.message
+                            ),
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                context.exit_prompt(prompt_name);
+                return Err(RenderTemplateError {
+                    message: format!(
+                        "Error retrieving referenced prompt '{}': {}",
+                        prompt_name, e
+                    ),
+                });
+            }
+        }
+
+        // Exit the prompt after successful rendering
+        // For variable references, the caller is responsible for exiting
+        if !is_variable_reference {
+            context.exit_prompt(prompt_name);
+        }
+        Ok(())
     }
 }
 
