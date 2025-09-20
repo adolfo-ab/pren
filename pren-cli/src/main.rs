@@ -54,6 +54,10 @@ pub enum Commands {
         #[arg(short = 'o', long)]
         overwrite: bool,
     },
+    Show {
+        #[arg(short = 'n', long, add = ArgValueCompleter::new(prompt_names))]
+        name: String,
+    },
     Get {
         #[arg(short = 'n', long, add = ArgValueCompleter::new(prompt_names))]
         name: String,
@@ -67,6 +71,7 @@ pub enum Commands {
         #[arg(short = 'f', long, default_value = "false")]
         force: bool,
     },
+    Info,
 }
 
 /// Parse a single key-value pair
@@ -80,7 +85,7 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
 fn main() -> Result<(), Box<dyn Error>> {
     CompleteEnv::with_factory(Cli::command).complete();
     let cli = Cli::parse();
-    let _storage = initialize_storage(cli.storage_path);
+    let storage = initialize_storage(cli.storage_path);
 
     match cli.command {
         Commands::Add {
@@ -89,7 +94,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             tags,
             overwrite,
         } => {
-            match _storage.get_prompt(&name) {
+            match storage.get_prompt(&name) {
                 Ok(_p) => {
                     if !overwrite {
                         eprintln!(
@@ -103,16 +108,28 @@ fn main() -> Result<(), Box<dyn Error>> {
             };
             // Create the prompt using the new unified constructor
             let prompt = Prompt::new(name.to_string(), content.to_string(), tags.clone())?;
-            Ok(_storage.save_prompt(&prompt)?)
+            Ok(storage.save_prompt(&prompt)?)
+        },
+        Commands::Show {
+            name,
+        } => match storage.get_prompt(&name) {
+            Ok(prompt) => {
+                println!("{}", prompt.content);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Error retrieving prompt '{}': {}", name, e);
+                Err(e.into())
+            }
         }
         Commands::Get {
             name,
             args: kv_args,
-        } => match _storage.get_prompt(&name) {
+        } => match storage.get_prompt(&name) {
             Ok(prompt) => {
                 let mut clipboard = Clipboard::new()?;
                 let args_map: HashMap<String, String> = kv_args.iter().cloned().collect();
-                let rendered_prompt = prompt.render(&args_map, &_storage)?;
+                let rendered_prompt = prompt.render(&args_map, &storage)?;
                 println!("{}", rendered_prompt);
                 clipboard.set_text(rendered_prompt)?;
                 Ok(())
@@ -123,7 +140,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         },
         Commands::List => {
-            let prompts = _storage.get_prompts();
+            let prompts = storage.get_prompts();
             match prompts {
                 Ok(p) => {
                     for prompt in p {
@@ -137,7 +154,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
         }
-        Commands::Delete { name, force } => match _storage.get_prompt(&name) {
+        Commands::Delete { name, force } => match storage.get_prompt(&name) {
             Ok(_prompt) => {
                 if !force {
                     println!("Are you sure you want to delete prompt '{}'? [y/N]", name);
@@ -150,7 +167,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
 
-                match _storage.delete_prompt(&name) {
+                match storage.delete_prompt(&name) {
                     Ok(()) => {
                         println!("Prompt '{}' deleted successfully.", name);
                         Ok(())
@@ -160,11 +177,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                         Err(e.into())
                     }
                 }
-            }
+            },
             Err(e) => {
                 eprintln!("Error retrieving prompt '{}': {}", name, e);
                 Err(e.into())
             }
         },
+        Commands::Info => {
+            println!("Prompt storage path: {:?}", storage.base_path);
+            println!("Total number of prompts: {}", storage.get_prompts().unwrap().len());
+            Ok(())
+        }
     }
 }
