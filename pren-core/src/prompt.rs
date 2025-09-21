@@ -31,14 +31,13 @@
 
 use crate::parser::parse_template;
 use crate::storage::PromptStorage;
+use chrono::{DateTime, Local};
 use nom::Err as NomErr;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use chrono::{DateTime, Local};
 
 /// Maximum allowed nesting depth for prompt templates
 const MAX_NESTING_DEPTH: usize = 3;
-
 
 #[derive(Debug, Clone)]
 pub struct Prompt {
@@ -46,7 +45,7 @@ pub struct Prompt {
     pub content: String,
     pub template: PromptTemplate,
     pub tags: Vec<String>,
-    pub creation_date: DateTime<Local>
+    pub creation_date: DateTime<Local>,
 }
 
 #[derive(Debug)]
@@ -283,12 +282,26 @@ impl PromptTemplate {
                     }
                 },
                 PromptTemplatePart::PromptReference(name) => {
-                    self.render_prompt_reference(name, arguments, storage, context, &mut result, false)?;
-                },
+                    self.render_prompt_reference(
+                        name,
+                        arguments,
+                        storage,
+                        context,
+                        &mut result,
+                        false,
+                    )?;
+                }
                 PromptTemplatePart::VariablePromptReference(name) => match arguments.get(name) {
                     Some(value) => {
-                        self.render_prompt_reference(value, arguments, storage, context, &mut result, true)?;
-                    },
+                        self.render_prompt_reference(
+                            value,
+                            arguments,
+                            storage,
+                            context,
+                            &mut result,
+                            true,
+                        )?;
+                    }
                     None => {
                         return Err(RenderTemplateError {
                             message: format!("Missing argument: {}", name),
@@ -314,20 +327,18 @@ impl PromptTemplate {
         context.enter_prompt(prompt_name)?;
 
         match storage.get_prompt(prompt_name) {
-            Ok(prompt) => {
-                match prompt.template.render_internal(arguments, storage, context) {
-                    Ok(rendered) => result.push_str(&rendered),
-                    Err(e) => {
-                        context.exit_prompt(prompt_name);
-                        return Err(RenderTemplateError {
-                            message: format!(
-                                "Failed to render referenced prompt '{}': {}",
-                                prompt_name, e.message
-                            ),
-                        });
-                    }
+            Ok(prompt) => match prompt.template.render_internal(arguments, storage, context) {
+                Ok(rendered) => result.push_str(&rendered),
+                Err(e) => {
+                    context.exit_prompt(prompt_name);
+                    return Err(RenderTemplateError {
+                        message: format!(
+                            "Failed to render referenced prompt '{}': {}",
+                            prompt_name, e.message
+                        ),
+                    });
                 }
-            }
+            },
             Err(e) => {
                 context.exit_prompt(prompt_name);
                 return Err(RenderTemplateError {
@@ -864,12 +875,8 @@ mod tests {
         )
         .expect("Failed to create prompt_a");
 
-        let prompt_b = Prompt::new(
-            "prompt_b".to_string(),
-            "B {{name}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_b");
+        let prompt_b = Prompt::new("prompt_b".to_string(), "B {{name}}".to_string(), vec![])
+            .expect("Failed to create prompt_b");
 
         // Set up storage with both prompts
         let mut storage = MockStorage::new();

@@ -257,7 +257,10 @@ mod tests {
         let max_length_id = "a".repeat(64);
         let input = format!("{{{{prompt_var:{}}}}}", max_length_id);
         let result = parse_variable_prompt_reference(&input);
-        assert!(result.is_ok(), "64-character variable prompt reference should work");
+        assert!(
+            result.is_ok(),
+            "64-character variable prompt reference should work"
+        );
         assert_eq!(result.unwrap().1, max_length_id.as_str());
     }
 
@@ -266,13 +269,19 @@ mod tests {
         let too_long_id = "a".repeat(65);
         let input = format!("{{{{prompt_var:{}}}}}", too_long_id);
         let result = parse_variable_prompt_reference(&input);
-        assert!(result.is_err(), "65-character variable prompt reference should fail");
+        assert!(
+            result.is_err(),
+            "65-character variable prompt reference should fail"
+        );
     }
 
     #[test]
     fn test_parse_empty_variable_prompt_reference() {
         let result = parse_variable_prompt_reference("{{prompt_var:}}");
-        assert!(result.is_err(), "Empty variable prompt reference should fail");
+        assert!(
+            result.is_err(),
+            "Empty variable prompt reference should fail"
+        );
     }
 
     #[test]
@@ -378,7 +387,7 @@ mod tests {
         let (remaining, template) = result.unwrap();
         assert_eq!(remaining, "");
         assert_eq!(template.parts.len(), 3);
-        
+
         // Check that the middle part is a VariablePromptReference
         match &template.parts[1] {
             PromptTemplatePart::VariablePromptReference(prompt_name) => {
@@ -410,7 +419,7 @@ mod tests {
         let (remaining, template) = result.unwrap();
         assert_eq!(remaining, "");
         assert_eq!(template.parts.len(), 4);
-        
+
         // Check the first prompt reference
         match &template.parts[0] {
             PromptTemplatePart::PromptReference(prompt_name) => {
@@ -418,7 +427,7 @@ mod tests {
             }
             _ => panic!("Expected PromptReference part"),
         }
-        
+
         // Check the literal parts
         match &template.parts[1] {
             PromptTemplatePart::Literal(text) => {
@@ -426,14 +435,14 @@ mod tests {
             }
             _ => panic!("Expected Literal part"),
         }
-        
+
         match &template.parts[2] {
             PromptTemplatePart::VariablePromptReference(prompt_name) => {
                 assert_eq!("dynamic", prompt_name);
             }
             _ => panic!("Expected VariablePromptReference part"),
         }
-        
+
         match &template.parts[3] {
             PromptTemplatePart::Literal(text) => {
                 assert_eq!(" together", text);

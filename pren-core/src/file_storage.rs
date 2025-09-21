@@ -36,7 +36,6 @@
 
 use crate::prompt::{ParseTemplateError, Prompt};
 use crate::storage::PromptStorage;
-use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs::create_dir_all;
@@ -131,20 +130,6 @@ impl From<ParseTemplateError> for FileStorageError {
 pub struct FileStorage {
     /// The base directory where prompt files are stored.
     pub base_path: PathBuf,
-}
-
-impl Default for FileStorage {
-    fn default() -> Self {
-        let base_path = home_dir();
-        match base_path {
-            Some(p) => Self {
-                base_path: p.join("pren-prompts"),
-            },
-            None => Self {
-                base_path: PathBuf::from("pren-prompts"),
-            },
-        }
-    }
 }
 
 impl PromptStorage for FileStorage {

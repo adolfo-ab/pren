@@ -1,6 +1,7 @@
 mod config;
+mod constants;
 
-use crate::config::initialize_storage;
+use crate::config::get_storage;
 use arboard::Clipboard;
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 use clap_complete::CompleteEnv;
@@ -12,7 +13,7 @@ use std::error::Error;
 
 // Custom completer for prompt names
 fn prompt_names(_current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
-    let storage = initialize_storage(std::env::var("PREN_STORAGE_PATH").ok());
+    let storage = get_storage();
 
     let prompts = storage.get_prompts();
     match prompts {
@@ -46,7 +47,7 @@ fn prompt_args(current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
     };
 
     // Get the prompt and extract its variables
-    let storage = initialize_storage(std::env::var("PREN_STORAGE_PATH").ok());
+    let storage = get_storage();
     let Ok(prompt) = storage.get_prompt(name) else {
         return vec![CompletionCandidate::new("")];
     };
@@ -66,16 +67,15 @@ fn prompt_args(current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
         return prompt_args
             .into_iter()
             .filter(|var| !provided_keys.contains(*var))
-            .map(|var| {
-                CompletionCandidate::new(format!("{}=", var))
-            })
+            .map(|var| CompletionCandidate::new(format!("{}=", var)))
             .collect();
     }
 
     // If user is in the middle of typing key=value, provide the key suggestions
     if let Some((partial_key, _)) = current_str.split_once('=') {
         let partial_key_string = partial_key.to_string();
-        if prompt_args.contains(&&partial_key_string) {  // Fixed: double reference
+        if prompt_args.contains(&&partial_key_string) {
+            // Fixed: double reference
             return vec![CompletionCandidate::new(current_str.to_string())];
         }
     }
@@ -153,7 +153,7 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
 fn main() -> Result<(), Box<dyn Error>> {
     CompleteEnv::with_factory(Cli::command).complete();
     let cli = Cli::parse();
-    let storage = initialize_storage(cli.storage_path);
+    let storage = get_storage();
 
     match cli.command {
         Commands::Add {
@@ -177,10 +177,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             // Create the prompt using the new unified constructor
             let prompt = Prompt::new(name.to_string(), content.to_string(), tags.clone())?;
             Ok(storage.save_prompt(&prompt)?)
-        },
-        Commands::Show {
-            name,
-        } => match storage.get_prompt(&name) {
+        }
+        Commands::Show { name } => match storage.get_prompt(&name) {
             Ok(prompt) => {
                 println!("Name: {}", prompt.name);
                 println!("Tags: {:?}", prompt.tags);
@@ -265,7 +263,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         Err(e.into())
                     }
                 }
-            },
+            }
             Err(e) => {
                 eprintln!("Error retrieving prompt '{}': {}", name, e);
                 Err(e.into())
@@ -273,8 +271,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         Commands::Info => {
             println!("Prompt storage path: {:?}", storage.base_path);
-            println!("Total number of prompts: {}", storage.get_prompts().unwrap().len());
+            println!(
+                "Total number of prompts: {}",
+                storage.get_prompts().unwrap().len()
+            );
             Ok(())
-        },
+        }
     }
 }

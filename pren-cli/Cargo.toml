@@ -12,3 +12,6 @@ pren-core = { path = "../pren-core"}
 clap = { version = "4.5.47", features = ["derive"] }
 clap_complete = { version = "4.5.57", features = ["unstable-dynamic"] }
 arboard = "3.6.1"
+confy = "1.0.0"
+serde = { version = "1.0.219", features = ["derive"] }
+exitcode = "1.1.2"
