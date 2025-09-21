@@ -8,7 +8,6 @@ use std::path::PathBuf;
 #[derive(Serialize, Deserialize)]
 pub struct PrenCliConfig {
     base_path: String,
-    max_template_nesting_depth: u8,
 }
 
 impl Default for PrenCliConfig {
@@ -19,7 +18,6 @@ impl Default for PrenCliConfig {
 
         Self {
             base_path: String::from(base_path.to_str().unwrap()),
-            max_template_nesting_depth: 3,
         }
     }
 }
