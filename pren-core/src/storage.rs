@@ -30,9 +30,10 @@ pub trait PromptStorage {
     /// Retrieves all prompts.
     fn get_prompts(&self) -> Result<Vec<Prompt>, Self::Error>;
 
+    /// Retrieves prompts that have any of the specified tags.
+    fn get_prompts_by_tag(&self, tags: &[String]) -> Result<Vec<Prompt>, Self::Error>;
+
     /// Deletes a prompt by name.
     fn delete_prompt(&self, name: &str) -> Result<(), Self::Error>;
 
-    /// Retrieves prompts that have any of the specified tags.
-    fn get_prompts_by_tag(&self, tags: &[String]) -> Result<Vec<Prompt>, Self::Error>;
 }

@@ -8,25 +8,19 @@
 //! Creating a simple prompt:
 //!
 //! ```rust
-//! use pren_core::prompt::Prompt;
+//! use pren_core::prompt::{Prompt, PromptMetadata};
 //!
-//! let prompt = Prompt::new(
-//!     "greeting".to_string(),
-//!     "Hello, world!".to_string(),
-//!     vec!["example".to_string()]
-//! ).expect("Failed to create prompt");
+//! let metadata = PromptMetadata::new("greeting".to_string(), None, vec!["example".to_string()]);
+//! let prompt = Prompt::new(metadata, "Hello, world!".to_string());
 //! ```
 //!
 //! Creating a template prompt:
 //!
 //! ```rust
-//! use pren_core::prompt::Prompt;
+//! use pren_core::prompt::{Prompt, PromptMetadata};
 //!
-//! let prompt = Prompt::new(
-//!     "personal_greeting".to_string(),
-//!     "Hello {{name}}, welcome to {{prompt:service_name}}!".to_string(),
-//!     vec!["example".to_string()]
-//! ).expect("Failed to create template prompt");
+//! let metadata = PromptMetadata::new("personal_greeting".to_string(), None, vec!["example".to_string()]);
+//! let prompt = Prompt::new(metadata, "Hello {{name}}, welcome to {{prompt:service_name}}!".to_string());
 //! ```
 
 use crate::parser::parse_template;
@@ -35,17 +29,45 @@ use chrono::{DateTime, Local};
 use nom::Err as NomErr;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use serde::{Deserialize, Serialize};
 
 /// Maximum allowed nesting depth for prompt templates
 const MAX_NESTING_DEPTH: usize = 3;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptMetadata {
+    pub name: String,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub created: DateTime<Local>,
+    pub last_modified: DateTime<Local>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Prompt {
-    pub name: String,
+    pub metadata: PromptMetadata,
     pub content: String,
-    pub template: PromptTemplate,
-    pub tags: Vec<String>,
-    pub creation_date: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PromptTemplatePart {
+    /// Literal text that is rendered as-is.
+    Literal(String),
+    /// An argument placeholder that gets replaced with a value at render time.
+    Argument(String),
+    /// A reference to another prompt that gets rendered at render time.
+    PromptReference(String),
+    /// A variable reference to another prompt that gets rendered at render time.
+    VariablePromptReference(String),
+}
+
+/// A parsed template with parts that can be literals, arguments, or prompt references.
+#[derive(Debug, Clone)]
+pub struct PromptTemplate {
+    // The prompt used to generate the template
+    pub prompt: Prompt,
+    /// The parts that make up the template.
+    pub parts: Vec<PromptTemplatePart>,
 }
 
 #[derive(Debug)]
@@ -119,27 +141,37 @@ impl RenderValidationContext {
         self.current_depth -= 1;
     }
 }
-#[derive(Debug, Clone, PartialEq)]
-pub enum PromptTemplatePart {
-    /// Literal text that is rendered as-is.
-    Literal(String),
-    /// An argument placeholder that gets replaced with a value at render time.
-    Argument(String),
-    /// A reference to another prompt that gets rendered at render time.
-    PromptReference(String),
-    /// A variable reference to another prompt that gets rendered at render time.
-    VariablePromptReference(String),
-}
 
-/// A parsed template with parts that can be literals, arguments, or prompt references.
-#[derive(Debug, Clone)]
-pub struct PromptTemplate {
-    /// The parts that make up the template.
-    pub parts: Vec<PromptTemplatePart>,
+impl PromptMetadata {
+    pub fn new(
+        name: String,
+        description: Option<String>,
+        tags: Vec<String>,
+    ) -> PromptMetadata {
+        PromptMetadata {
+            name,
+            description,
+            tags,
+            created: Local::now(),
+            last_modified: Local::now(),
+        }
+    }
 }
 
 impl Prompt {
-    /// Creates a new template prompt.
+    pub fn new(
+        metadata: PromptMetadata,
+        content: String,
+    ) -> Prompt {
+        Prompt {
+            metadata,
+            content,
+        }
+    }
+}
+
+impl PromptTemplate {
+    /// Creates a new prompt template.
     ///
     /// # Arguments
     ///
@@ -153,17 +185,12 @@ impl Prompt {
     /// * `Ok(Prompt)` - A new `Prompt::Template` variant.
     /// * `Err(ParseTemplateError)` - If the template syntax is invalid.
     pub fn new(
-        name: String,
-        content: String,
-        tags: Vec<String>,
-    ) -> Result<Prompt, ParseTemplateError> {
-        match parse_template(&content) {
-            Ok((_, template)) => Ok(Prompt {
-                name,
-                content,
-                template,
-                tags,
-                creation_date: Local::now(),
+        prompt: Prompt
+    ) -> Result<PromptTemplate, ParseTemplateError> {
+        match parse_template(&prompt.content) {
+            Ok((_, template_parts)) => Ok(PromptTemplate {
+                prompt,
+                parts: template_parts
             }),
             Err(NomErr::Error(e)) | Err(NomErr::Failure(e)) => Err(ParseTemplateError {
                 message: format!("Failed to parse template: {:?}", e),
@@ -174,51 +201,12 @@ impl Prompt {
         }
     }
 
-    pub fn is_simple(content: String) -> Result<bool, ParseTemplateError> {
-        match parse_template(&content) {
-            Ok((_, template)) => {
-                Ok(template.arguments().len() == 0 && template.prompt_references().len() == 0)
-            }
-            Err(NomErr::Error(e)) | Err(NomErr::Failure(e)) => Err(ParseTemplateError {
-                message: format!("Failed to parse template: {:?}", e),
-            }),
-            Err(NomErr::Incomplete(_)) => Err(ParseTemplateError {
-                message: "Failed to parse template: incomplete input".to_string(),
-            }),
-        }
-    }
-
-    /// Renders a prompt with the given arguments.
-    ///
-    /// For simple prompts, this returns the content as-is.
-    /// For template prompts, this substitutes placeholders with the provided values
-    /// and resolves prompt references using the provided storage.
-    ///
-    /// # Arguments
-    ///
-    /// * `arguments` - A map of argument names to values for template substitution.
-    /// * `storage` - A storage implementation for resolving prompt references.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(String)` - The rendered prompt content.
-    /// * `Err(RenderTemplateError)` - If there was an error during rendering.
-    pub fn render<S: PromptStorage>(
-        &self,
-        arguments: &HashMap<String, String>,
-        storage: &S,
-    ) -> Result<String, RenderTemplateError> {
-        self.template.render(arguments, storage)
-    }
-}
-
-impl PromptTemplate {
-    pub fn arguments(&self) -> Vec<&String> {
+    pub fn arguments(&self) -> Vec<String> {
         self.parts
             .iter()
             .filter_map(|part| {
                 if let PromptTemplatePart::Argument(arg) = part {
-                    Some(arg)
+                    Some(arg.clone())
                 } else {
                     None
                 }
@@ -226,12 +214,12 @@ impl PromptTemplate {
             .collect()
     }
 
-    pub fn prompt_references(&self) -> Vec<&String> {
+    pub fn prompt_references(&self) -> Vec<String> {
         self.parts
             .iter()
             .filter_map(|part| {
                 if let PromptTemplatePart::PromptReference(prompt) = part {
-                    Some(prompt)
+                    Some(prompt.clone())
                 } else {
                     None
                 }
@@ -239,17 +227,21 @@ impl PromptTemplate {
             .collect()
     }
 
-    pub fn variable_prompt_references(&self) -> Vec<&String> {
+    pub fn variable_prompt_references(&self) -> Vec<String> {
         self.parts
             .iter()
             .filter_map(|part| {
                 if let PromptTemplatePart::VariablePromptReference(prompt) = part {
-                    Some(prompt)
+                    Some(prompt.clone())
                 } else {
                     None
                 }
             })
             .collect()
+    }
+
+    pub fn is_simple(&self) -> bool {
+        self.arguments().len() == 0 && self.prompt_references().len() == 0 && self.variable_prompt_references().len() == 0
     }
 
     pub fn render<S: PromptStorage>(
@@ -327,16 +319,31 @@ impl PromptTemplate {
         context.enter_prompt(prompt_name)?;
 
         match storage.get_prompt(prompt_name) {
-            Ok(prompt) => match prompt.template.render_internal(arguments, storage, context) {
-                Ok(rendered) => result.push_str(&rendered),
-                Err(e) => {
-                    context.exit_prompt(prompt_name);
-                    return Err(RenderTemplateError {
-                        message: format!(
-                            "Failed to render referenced prompt '{}': {}",
-                            prompt_name, e.message
-                        ),
-                    });
+            Ok(prompt) => {
+                match PromptTemplate::new(prompt) {
+                    Ok(template) => {
+                        match template.render_internal(arguments, storage, context) {
+                            Ok(rendered) => result.push_str(&rendered),
+                            Err(e) => {
+                                context.exit_prompt(prompt_name);
+                                return Err(RenderTemplateError {
+                                    message: format!(
+                                        "Failed to render referenced prompt '{}': {}",
+                                        prompt_name, e.message
+                                    ),
+                                });
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        context.exit_prompt(prompt_name);
+                        return Err(RenderTemplateError {
+                            message: format!(
+                                "Error parsing referenced prompt '{}': {}",
+                                prompt_name, e
+                            ),
+                        });
+                    }
                 }
             },
             Err(e) => {
@@ -362,25 +369,31 @@ impl PromptTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fmt::Error;
+    use crate::storage::PromptStorage;
+    
 
     #[test]
     fn test_new_simple_prompt() {
         let name = "prompt_name";
+        let description = Some("A simple description".to_string());
         let content = "This is the prompt content";
         let tags = vec!["tag1".to_string(), "tag2".to_string()];
-        let result = Prompt::new(name.to_string(), content.to_string(), tags.clone());
+        
+        let metadata = PromptMetadata::new(name.to_string(), description, tags.clone());
+        let prompt = Prompt::new(metadata, content.to_string());
+        
+        let result = PromptTemplate::new(prompt);
 
         assert!(result.is_ok());
 
-        let prompt = result.unwrap();
+        let prompt_template = result.unwrap();
 
-        assert_eq!(name, prompt.name);
-        assert_eq!(content, prompt.content);
-        assert_eq!(1, prompt.template.parts.len());
-        assert_eq!(2, prompt.tags.len());
-        assert_eq!(tags[0], prompt.tags[0]);
-        assert_eq!(tags[1], prompt.tags[1]);
+        assert_eq!(name, prompt_template.prompt.metadata.name);
+        assert_eq!(content, prompt_template.prompt.content);
+        assert_eq!(1, prompt_template.parts.len());
+        assert_eq!(2, prompt_template.prompt.metadata.tags.len());
+        assert_eq!(tags[0], prompt_template.prompt.metadata.tags[0]);
+        assert_eq!(tags[1], prompt_template.prompt.metadata.tags[1]);
     }
 
     #[test]
@@ -389,48 +402,47 @@ mod tests {
         let content = "Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal_braces}}}}";
         let tags = vec!["tag1".to_string(), "tag2".to_string()];
 
-        let prompt = Prompt::new(name.to_string(), content.to_string(), tags.clone())
-            .expect("Failed to create template prompt");
+        let metadata = PromptMetadata::new(name.to_string(), None, tags.clone());
+        let prompt = Prompt::new(metadata, content.to_string());
 
-        assert_eq!(name, prompt.name);
-        assert_eq!(content, prompt.content);
+        let result = PromptTemplate::new(prompt);
+        assert!(result.is_ok());
 
-        assert_eq!(2, prompt.tags.len());
-        assert_eq!(tags[0], prompt.tags[0]);
-        assert_eq!(tags[1], prompt.tags[1]);
+        let template = result.unwrap();
+        assert_eq!(name, template.prompt.metadata.name);
+        assert_eq!(content, template.prompt.content);
 
-        // Check that it's actually a template prompt
-        assert_eq!(6, prompt.template.parts.len());
+        assert_eq!(6, template.parts.len());
 
         // Check each part
-        match &prompt.template.parts[0] {
+        match &template.parts[0] {
             PromptTemplatePart::Literal(text) => assert_eq!("Hello ", text),
             _ => panic!("Expected Literal part"),
         }
 
-        match &prompt.template.parts[1] {
+        match &template.parts[1] {
             PromptTemplatePart::Argument(arg) => assert_eq!("name", arg),
             _ => panic!("Expected Argument part"),
         }
 
-        match &prompt.template.parts[2] {
+        match &template.parts[2] {
             PromptTemplatePart::Literal(text) => assert_eq!(", welcome to ", text),
             _ => panic!("Expected Literal part"),
         }
 
-        match &prompt.template.parts[3] {
+        match &template.parts[3] {
             PromptTemplatePart::PromptReference(prompt_name) => {
                 assert_eq!("greeting", prompt_name)
             }
             _ => panic!("Expected PromptReference part"),
         }
 
-        match &prompt.template.parts[4] {
+        match &template.parts[4] {
             PromptTemplatePart::Literal(text) => assert_eq!("! ", text),
             _ => panic!("Expected Literal part"),
         }
 
-        match &prompt.template.parts[5] {
+        match &template.parts[5] {
             PromptTemplatePart::Literal(text) => assert_eq!("literal_braces", text),
             _ => panic!("Expected Literal part"),
         }
@@ -448,51 +460,67 @@ mod tests {
         }
 
         fn add_prompt(&mut self, prompt: Prompt) {
-            self.prompts.insert(prompt.name.clone(), prompt);
+            self.prompts.insert(prompt.metadata.name.clone(), prompt);
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct MockStorageError {
+        message: String,
+    }
+
+    impl std::fmt::Display for MockStorageError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.message)
+        }
+    }
+
+    impl Error for MockStorageError {}
+
+    impl From<String> for MockStorageError {
+        fn from(message: String) -> Self {
+            MockStorageError { message }
         }
     }
 
     impl PromptStorage for MockStorage {
-        type Error = Error;
+        type Error = MockStorageError;
 
-        fn save_prompt(&self, _prompt: &Prompt) -> Result<(), Error> {
+        fn save_prompt(&self, _prompt: &Prompt) -> Result<(), Self::Error> {
             Ok(())
         }
 
-        fn get_prompt(&self, name: &str) -> Result<Prompt, Error> {
+        fn get_prompt(&self, name: &str) -> Result<Prompt, Self::Error> {
             match self.prompts.get(name) {
                 Some(prompt) => Ok(prompt.clone()),
-                None => Err(Error),
+                None => Err("Prompt not found".to_string().into()),
             }
         }
 
-        fn get_prompts(&self) -> Result<Vec<Prompt>, Error> {
+        fn get_prompts(&self) -> Result<Vec<Prompt>, Self::Error> {
             Ok(self.prompts.values().cloned().collect())
         }
 
-        fn delete_prompt(&self, _name: &str) -> Result<(), Error> {
-            Ok(())
+        fn get_prompts_by_tag(&self, _tags: &[String]) -> Result<Vec<Prompt>, Self::Error> {
+            Ok(vec![])
         }
 
-        fn get_prompts_by_tag(&self, _tags: &[String]) -> Result<Vec<Prompt>, Error> {
-            Ok(vec![])
+        fn delete_prompt(&self, _name: &str) -> Result<(), Self::Error> {
+            Ok(())
         }
     }
 
     #[test]
     fn test_render_simple_prompt() {
-        let simple_prompt = Prompt::new(
-            "simple".to_string(),
-            "This is a simple prompt".to_string(),
-            vec![],
-        )
-        .expect("Failed to create simple prompt");
+        let metadata = PromptMetadata::new("simple".to_string(), None, vec![]);
+        let prompt = Prompt::new(metadata, "This is a simple prompt".to_string());
+        let template = PromptTemplate::new(prompt).expect("Failed to create template");
 
         let mut args = HashMap::new();
         args.insert("name".to_string(), "World".to_string());
 
         let storage = MockStorage::new();
-        let rendered = simple_prompt
+        let rendered = template
             .render(&args, &storage)
             .expect("Failed to render simple prompt");
         assert_eq!("This is a simple prompt", rendered);
@@ -500,18 +528,15 @@ mod tests {
 
     #[test]
     fn test_render_template_prompt() {
-        let template_prompt = Prompt::new(
-            "template".to_string(),
-            "Hello {{name}}, welcome!".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
+        let metadata = PromptMetadata::new("template".to_string(), None, vec![]);
+        let prompt = Prompt::new(metadata, "Hello {{name}}, welcome!".to_string());
+        let template = PromptTemplate::new(prompt).expect("Failed to create template");
 
         let mut args = HashMap::new();
         args.insert("name".to_string(), "World".to_string());
 
         let storage = MockStorage::new();
-        let rendered = template_prompt
+        let rendered = template
             .render(&args, &storage)
             .expect("Failed to render template prompt");
         assert_eq!("Hello World, welcome!", rendered);
@@ -519,36 +544,30 @@ mod tests {
 
     #[test]
     fn test_render_template_prompt_missing_argument() {
-        let template_prompt = Prompt::new(
-            "template".to_string(),
-            "Hello {{name}}, welcome!".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
+        let metadata = PromptMetadata::new("template".to_string(), None, vec![]);
+        let prompt = Prompt::new(metadata, "Hello {{name}}, welcome!".to_string());
+        let template = PromptTemplate::new(prompt).expect("Failed to create template");
 
         let args = HashMap::new();
 
         let storage = MockStorage::new();
-        let result = template_prompt.render(&args, &storage);
+        let result = template.render(&args, &storage);
         assert!(result.is_err());
         assert_eq!("Missing argument: name", result.unwrap_err().message);
     }
 
     #[test]
     fn test_render_template_prompt_multiple_arguments() {
-        let template_prompt = Prompt::new(
-            "template".to_string(),
-            "Dear {{name}}, you are {{age}} years old!".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
+        let metadata = PromptMetadata::new("template".to_string(), None, vec![]);
+        let prompt = Prompt::new(metadata, "Dear {{name}}, you are {{age}} years old!".to_string());
+        let template = PromptTemplate::new(prompt).expect("Failed to create template");
 
         let mut args = HashMap::new();
         args.insert("name".to_string(), "Alice".to_string());
         args.insert("age".to_string(), "30".to_string());
 
         let storage = MockStorage::new();
-        let rendered = template_prompt
+        let rendered = template
             .render(&args, &storage)
             .expect("Failed to render template prompt");
         assert_eq!("Dear Alice, you are 30 years old!", rendered);
@@ -556,18 +575,15 @@ mod tests {
 
     #[test]
     fn test_render_template_prompt_with_escaped_literals() {
-        let template_prompt = Prompt::new(
-            "template".to_string(),
-            "Hello {{{{{{name}}}}}}, you are {{age}} years old!".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
+        let metadata = PromptMetadata::new("template".to_string(), None, vec![]);
+        let prompt = Prompt::new(metadata, "Hello {{{{{{name}}}}}}, you are {{age}} years old!".to_string());
+        let template = PromptTemplate::new(prompt).expect("Failed to create template");
 
         let mut args = HashMap::new();
         args.insert("age".to_string(), "30".to_string());
 
         let storage = MockStorage::new();
-        let rendered = template_prompt
+        let rendered = template
             .render(&args, &storage)
             .expect("Failed to render template prompt");
         assert_eq!("Hello {{name}}, you are 30 years old!", rendered);
@@ -575,15 +591,12 @@ mod tests {
 
     #[test]
     fn test_render_template_with_prompt_reference() {
-        let greeting_prompt = Prompt::new("greeting".to_string(), "Hello!".to_string(), vec![])
-            .expect("Failed to create greeting prompt");
+        let greeting_metadata = PromptMetadata::new("greeting".to_string(), None, vec![]);
+        let greeting_prompt = Prompt::new(greeting_metadata, "Hello!".to_string());
 
-        let main_prompt = Prompt::new(
-            "main".to_string(),
-            "{{prompt:greeting}} Nice to meet you {{name}}!".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
+        let main_metadata = PromptMetadata::new("main".to_string(), None, vec![]);
+        let main_prompt = Prompt::new(main_metadata, "{{prompt:greeting}} Nice to meet you {{name}}!".to_string());
+        let main_template = PromptTemplate::new(main_prompt).expect("Failed to create template");
 
         let mut storage = MockStorage::new();
         storage.add_prompt(greeting_prompt);
@@ -591,7 +604,7 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("name".to_string(), "Alice".to_string());
 
-        let rendered = main_prompt
+        let rendered = main_template
             .render(&args, &storage)
             .expect("Failed to render template prompt with reference");
         assert_eq!("Hello! Nice to meet you Alice!", rendered);
@@ -599,48 +612,39 @@ mod tests {
 
     #[test]
     fn test_render_template_with_missing_prompt_reference() {
-        let template_prompt = Prompt::new(
-            "template".to_string(),
-            "Message: {{prompt:missing}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
+        let metadata = PromptMetadata::new("template".to_string(), None, vec![]);
+        let prompt = Prompt::new(metadata, "Message: {{prompt:missing}}".to_string());
+        let template = PromptTemplate::new(prompt).expect("Failed to create template");
 
         let mut args = HashMap::new();
         args.insert("name".to_string(), "Alice".to_string());
 
         let storage = MockStorage::new();
-        let result = template_prompt.render(&args, &storage);
+        let result = template.render(&args, &storage);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_render_template_with_nested_template_success() {
         // Create a template prompt that will be referenced
-        let nested_template_prompt = Prompt::new(
-            "nested_template".to_string(),
-            "This is a nested template with {{variable}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create nested template prompt");
+        let nested_metadata = PromptMetadata::new("nested_template".to_string(), None, vec![]);
+        let nested_template_prompt = Prompt::new(nested_metadata, "This is a nested template with {{variable}}".to_string());
+        let nested_template = PromptTemplate::new(nested_template_prompt).expect("Failed to create nested template");
 
         // Create a main template that references the nested template
-        let main_prompt = Prompt::new(
-            "main".to_string(),
-            "Referencing: {{prompt:nested_template}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create main template prompt");
+        let main_metadata = PromptMetadata::new("main".to_string(), None, vec![]);
+        let main_prompt = Prompt::new(main_metadata, "Referencing: {{prompt:nested_template}}".to_string());
+        let main_template = PromptTemplate::new(main_prompt).expect("Failed to create main template");
 
         // Set up storage with the nested template prompt
         let mut storage = MockStorage::new();
-        storage.add_prompt(nested_template_prompt);
+        storage.add_prompt(nested_template.prompt);  // Store the original prompt
 
         let mut args = HashMap::new();
         args.insert("variable".to_string(), "value".to_string());
 
         // Attempt to render, which should succeed with our new implementation
-        let result = main_prompt.render(&args, &storage);
+        let result = main_template.render(&args, &storage);
         assert!(result.is_ok());
         assert_eq!(
             "Referencing: This is a nested template with value",
@@ -651,19 +655,12 @@ mod tests {
     #[test]
     fn test_render_template_with_circular_reference() {
         // Create prompts that reference each other
-        let prompt_a = Prompt::new(
-            "prompt_a".to_string(),
-            "A {{prompt:prompt_b}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_a");
+        let prompt_a_metadata = PromptMetadata::new("prompt_a".to_string(), None, vec![]);
+        let prompt_a = Prompt::new(prompt_a_metadata, "A {{prompt:prompt_b}}".to_string());
+        let template_a = PromptTemplate::new(prompt_a.clone()).expect("Failed to create template");
 
-        let prompt_b = Prompt::new(
-            "prompt_b".to_string(),
-            "B {{prompt:prompt_a}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_b");
+        let prompt_b_metadata = PromptMetadata::new("prompt_b".to_string(), None, vec![]);
+        let prompt_b = Prompt::new(prompt_b_metadata, "B {{prompt:prompt_a}}".to_string());
 
         // Set up storage with both prompts
         let mut storage = MockStorage::new();
@@ -673,10 +670,7 @@ mod tests {
         let args = HashMap::new();
 
         // Try to render prompt_a, which should fail due to circular reference
-        let result = storage
-            .get_prompt("prompt_a")
-            .unwrap()
-            .render(&args, &storage);
+        let result = template_a.render(&args, &storage);
         assert!(result.is_err());
         assert!(
             result
@@ -689,37 +683,21 @@ mod tests {
     #[test]
     fn test_render_template_with_max_depth_exceeded() {
         // Create prompts with nesting that exceeds the maximum depth
-        let prompt_level_0 = Prompt::new(
-            "prompt_level_0".to_string(),
-            "Level 0 {{prompt:prompt_level_1}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_level_0");
+        let prompt_level_0_metadata = PromptMetadata::new("prompt_level_0".to_string(), None, vec![]);
+        let prompt_level_0 = Prompt::new(prompt_level_0_metadata, "Level 0 {{prompt:prompt_level_1}}".to_string());
+        let template_level_0 = PromptTemplate::new(prompt_level_0.clone()).expect("Failed to create template");
 
-        let prompt_level_1 = Prompt::new(
-            "prompt_level_1".to_string(),
-            "Level 1 {{prompt:prompt_level_2}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_level_1");
+        let prompt_level_1_metadata = PromptMetadata::new("prompt_level_1".to_string(), None, vec![]);
+        let prompt_level_1 = Prompt::new(prompt_level_1_metadata, "Level 1 {{prompt:prompt_level_2}}".to_string());
 
-        let prompt_level_2 = Prompt::new(
-            "prompt_level_2".to_string(),
-            "Level 2 {{prompt:prompt_level_3}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_level_2");
+        let prompt_level_2_metadata = PromptMetadata::new("prompt_level_2".to_string(), None, vec![]);
+        let prompt_level_2 = Prompt::new(prompt_level_2_metadata, "Level 2 {{prompt:prompt_level_3}}".to_string());
 
-        let prompt_level_3 = Prompt::new(
-            "prompt_level_3".to_string(),
-            "Level 3 {{prompt:prompt_level_4}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_level_3");
+        let prompt_level_3_metadata = PromptMetadata::new("prompt_level_3".to_string(), None, vec![]);
+        let prompt_level_3 = Prompt::new(prompt_level_3_metadata, "Level 3 {{prompt:prompt_level_4}}".to_string());
 
-        let prompt_level_4 =
-            Prompt::new("prompt_level_4".to_string(), "Level 4".to_string(), vec![])
-                .expect("Failed to create prompt_level_4");
+        let prompt_level_4_metadata = PromptMetadata::new("prompt_level_4".to_string(), None, vec![]);
+        let prompt_level_4 = Prompt::new(prompt_level_4_metadata, "Level 4".to_string());
 
         // Set up storage with all prompts
         let mut storage = MockStorage::new();
@@ -732,10 +710,7 @@ mod tests {
         let args = HashMap::new();
 
         // Try to render prompt_level_0, which should fail due to exceeding max depth
-        let result = storage
-            .get_prompt("prompt_level_0")
-            .unwrap()
-            .render(&args, &storage);
+        let result = template_level_0.render(&args, &storage);
         assert!(result.is_err());
         assert!(
             result
@@ -748,23 +723,15 @@ mod tests {
     #[test]
     fn test_render_template_with_valid_depth() {
         // Create prompts with nesting that is within the maximum depth
-        let prompt_level_0 = Prompt::new(
-            "prompt_level_0".to_string(),
-            "Level 0 {{prompt:prompt_level_1}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_level_0");
+        let prompt_level_0_metadata = PromptMetadata::new("prompt_level_0".to_string(), None, vec![]);
+        let prompt_level_0 = Prompt::new(prompt_level_0_metadata, "Level 0 {{prompt:prompt_level_1}}".to_string());
+        let template_level_0 = PromptTemplate::new(prompt_level_0.clone()).expect("Failed to create template");
 
-        let prompt_level_1 = Prompt::new(
-            "prompt_level_1".to_string(),
-            "Level 1 {{prompt:prompt_level_2}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_level_1");
+        let prompt_level_1_metadata = PromptMetadata::new("prompt_level_1".to_string(), None, vec![]);
+        let prompt_level_1 = Prompt::new(prompt_level_1_metadata, "Level 1 {{prompt:prompt_level_2}}".to_string());
 
-        let prompt_level_2 =
-            Prompt::new("prompt_level_2".to_string(), "Level 2".to_string(), vec![])
-                .expect("Failed to create prompt_level_2");
+        let prompt_level_2_metadata = PromptMetadata::new("prompt_level_2".to_string(), None, vec![]);
+        let prompt_level_2 = Prompt::new(prompt_level_2_metadata, "Level 2".to_string());
 
         // Set up storage with all prompts
         let mut storage = MockStorage::new();
@@ -775,10 +742,7 @@ mod tests {
         let args = HashMap::new();
 
         // Try to render prompt_level_0, which should succeed
-        let result = storage
-            .get_prompt("prompt_level_0")
-            .unwrap()
-            .render(&args, &storage);
+        let result = template_level_0.render(&args, &storage);
         assert!(result.is_ok());
         assert_eq!("Level 0 Level 1 Level 2", result.unwrap());
     }
@@ -786,20 +750,14 @@ mod tests {
     #[test]
     fn test_render_template_with_variable_prompt_reference() {
         // Create a prompt that will be referenced dynamically
-        let dynamic_prompt = Prompt::new(
-            "greeting".to_string(),
-            "Hello {{name}}!".to_string(),
-            vec![],
-        )
-        .expect("Failed to create dynamic prompt");
+        let dynamic_metadata = PromptMetadata::new("greeting".to_string(), None, vec![]);
+        let dynamic_prompt = Prompt::new(dynamic_metadata, "Hello {{name}}!".to_string());
+        let _dynamic_template = PromptTemplate::new(dynamic_prompt.clone()).expect("Failed to create template");
 
         // Create a main template that uses a variable prompt reference
-        let main_prompt = Prompt::new(
-            "main".to_string(),
-            "Message: {{prompt_var:prompt_name}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt with variable reference");
+        let main_metadata = PromptMetadata::new("main".to_string(), None, vec![]);
+        let main_prompt = Prompt::new(main_metadata, "Message: {{prompt_var:prompt_name}}".to_string());
+        let main_template = PromptTemplate::new(main_prompt).expect("Failed to create template with variable reference");
 
         // Set up storage with the dynamic prompt
         let mut storage = MockStorage::new();
@@ -810,7 +768,7 @@ mod tests {
         args.insert("prompt_name".to_string(), "greeting".to_string());
         args.insert("name".to_string(), "Alice".to_string());
 
-        let rendered = main_prompt
+        let rendered = main_template
             .render(&args, &storage)
             .expect("Failed to render template prompt with variable reference");
         assert_eq!("Message: Hello Alice!", rendered);
@@ -818,49 +776,40 @@ mod tests {
 
     #[test]
     fn test_variable_prompt_references() {
-        let template_prompt = Prompt::new(
-            "template".to_string(),
-            "Use {{prompt_var:first}} and {{prompt_var:second}} for dynamic content".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
+        let metadata = PromptMetadata::new("template".to_string(), None, vec![]);
+        let prompt = Prompt::new(metadata, "Use {{prompt_var:first}} and {{prompt_var:second}} for dynamic content".to_string());
+        let template = PromptTemplate::new(prompt).expect("Failed to create template");
 
-        let variable_refs = template_prompt.template.variable_prompt_references();
+        let variable_refs = template.variable_prompt_references();
         assert_eq!(variable_refs.len(), 2);
-        assert!(variable_refs.contains(&&"first".to_string()));
-        assert!(variable_refs.contains(&&"second".to_string()));
+        assert!(variable_refs.contains(&"first".to_string()));
+        assert!(variable_refs.contains(&"second".to_string()));
     }
 
     #[test]
     fn test_render_template_with_missing_variable_prompt_reference() {
-        let template_prompt = Prompt::new(
-            "template".to_string(),
-            "Message: {{prompt_var:missing_prompt}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
+        let metadata = PromptMetadata::new("template".to_string(), None, vec![]);
+        let prompt = Prompt::new(metadata, "Message: {{prompt_var:missing_prompt}}".to_string());
+        let template = PromptTemplate::new(prompt).expect("Failed to create template");
 
         let mut args = HashMap::new();
         args.insert("missing_prompt".to_string(), "nonexistent".to_string());
 
         let storage = MockStorage::new();
-        let result = template_prompt.render(&args, &storage);
+        let result = template.render(&args, &storage);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_render_template_with_variable_prompt_reference_missing_argument() {
-        let template_prompt = Prompt::new(
-            "template".to_string(),
-            "Message: {{prompt_var:prompt_name}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create template prompt");
+        let metadata = PromptMetadata::new("template".to_string(), None, vec![]);
+        let prompt = Prompt::new(metadata, "Message: {{prompt_var:prompt_name}}".to_string());
+        let template = PromptTemplate::new(prompt).expect("Failed to create template");
 
         let args = HashMap::new(); // Missing the "prompt_name" argument
 
         let storage = MockStorage::new();
-        let result = template_prompt.render(&args, &storage);
+        let result = template.render(&args, &storage);
         assert!(result.is_err());
         assert_eq!("Missing argument: prompt_name", result.unwrap_err().message);
     }
@@ -868,15 +817,12 @@ mod tests {
     #[test]
     fn test_render_template_with_variable_prompt_reference_circular_reference() {
         // Create prompts that reference each other circularly
-        let prompt_a = Prompt::new(
-            "prompt_a".to_string(),
-            "A {{prompt_var:ref_prompt}}".to_string(),
-            vec![],
-        )
-        .expect("Failed to create prompt_a");
+        let prompt_a_metadata = PromptMetadata::new("prompt_a".to_string(), None, vec![]);
+        let prompt_a = Prompt::new(prompt_a_metadata, "A {{prompt_var:ref_prompt}}".to_string());
+        let template_a = PromptTemplate::new(prompt_a.clone()).expect("Failed to create template");
 
-        let prompt_b = Prompt::new("prompt_b".to_string(), "B {{name}}".to_string(), vec![])
-            .expect("Failed to create prompt_b");
+        let prompt_b_metadata = PromptMetadata::new("prompt_b".to_string(), None, vec![]);
+        let prompt_b = Prompt::new(prompt_b_metadata, "B {{name}}".to_string());
 
         // Set up storage with both prompts
         let mut storage = MockStorage::new();
@@ -889,10 +835,7 @@ mod tests {
         args.insert("name".to_string(), "Alice".to_string());
 
         // Try to render prompt_a, which should fail due to circular reference
-        let result = storage
-            .get_prompt("prompt_a")
-            .unwrap()
-            .render(&args, &storage);
+        let result = template_a.render(&args, &storage);
         assert!(result.is_err());
         assert!(
             result

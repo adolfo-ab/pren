@@ -17,7 +17,7 @@
 //! assert!(result.is_ok());
 //! ```
 
-use crate::prompt::{PromptTemplate, PromptTemplatePart};
+use crate::prompt::{PromptTemplatePart};
 use nom::IResult;
 use nom::Parser;
 use nom::branch::alt;
@@ -26,7 +26,7 @@ use nom::combinator::{all_consuming, map, rest, verify};
 use nom::multi::many0;
 use nom::sequence::delimited;
 
-/// Parses a template string into a PromptTemplate.
+/// Parses a template string into a Vec<PromptTemplatePart>.
 ///
 /// # Arguments
 ///
@@ -34,10 +34,10 @@ use nom::sequence::delimited;
 ///
 /// # Returns
 ///
-/// * `Ok((remaining, template))` - The parsed template.
+/// * `Ok((remaining, parts))` - The parsed template parts.
 /// * `Err` - If parsing fails.
-pub fn parse_template(input: &str) -> IResult<&str, PromptTemplate> {
-    all_consuming(map(many0(parse_element), |parts| PromptTemplate { parts })).parse(input)
+pub fn parse_template(input: &str) -> IResult<&str, Vec<PromptTemplatePart>> {
+    all_consuming(many0(parse_element)).parse(input)
 }
 
 pub fn parse_element(input: &str) -> IResult<&str, PromptTemplatePart> {
@@ -152,18 +152,18 @@ mod tests {
     fn test_parse_consecutive_variables() {
         let result = parse_template("{{a}}{{b}}{{prompt:c}}");
         assert!(result.is_ok());
-        let (remaining, template) = result.unwrap();
+        let (remaining, parts) = result.unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(template.parts.len(), 3);
+        assert_eq!(parts.len(), 3);
     }
 
     #[test]
     fn test_parse_variables_at_boundaries() {
         let result = parse_template("{{start}}middle{{end}}");
         assert!(result.is_ok());
-        let (remaining, template) = result.unwrap();
+        let (remaining, parts) = result.unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(template.parts.len(), 3);
+        assert_eq!(parts.len(), 3);
     }
 
     #[test]
@@ -216,10 +216,10 @@ mod tests {
     fn test_parse_only_escaped_literals() {
         let result = parse_template("{{{{he{ll}o}}}}");
         assert!(result.is_ok());
-        let (remaining, template) = result.unwrap();
+        let (remaining, parts) = result.unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(template.parts.len(), 1);
-        assert!(matches!(template.parts[0], PromptTemplatePart::Literal(_)));
+        assert_eq!(parts.len(), 1);
+        assert!(matches!(parts[0], PromptTemplatePart::Literal(_)));
     }
 
     #[test]
@@ -375,21 +375,21 @@ mod tests {
     fn test_parse_template() {
         let result = parse_template("Hello {{name}}, welcome to {{prompt:greeting}}!");
         assert!(result.is_ok());
-        let (remaining, template) = result.unwrap();
+        let (remaining, parts) = result.unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(template.parts.len(), 5);
+        assert_eq!(parts.len(), 5);
     }
 
     #[test]
     fn test_parse_template_with_variable_prompt_reference() {
         let result = parse_template("Use {{prompt_var:dynamic_prompt}} for dynamic content");
         assert!(result.is_ok());
-        let (remaining, template) = result.unwrap();
+        let (remaining, parts) = result.unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(template.parts.len(), 3);
+        assert_eq!(parts.len(), 3);
 
         // Check that the middle part is a VariablePromptReference
-        match &template.parts[1] {
+        match &parts[1] {
             PromptTemplatePart::VariablePromptReference(prompt_name) => {
                 assert_eq!("dynamic_prompt", prompt_name);
             }
@@ -407,21 +407,21 @@ mod tests {
     fn test_parse_template_with_escaped_literals() {
         let result = parse_template("Hello {{{{name}}}} is not a variable, but {{real_name}} is");
         assert!(result.is_ok());
-        let (remaining, template) = result.unwrap();
+        let (remaining, parts) = result.unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(template.parts.len(), 5); // Literal, Literal, Argument
+        assert_eq!(parts.len(), 5); // Literal, Literal, Argument
     }
 
     #[test]
     fn test_parse_template_with_mixed_prompt_references() {
         let result = parse_template("{{prompt:static}} and {{prompt_var:dynamic}} together");
         assert!(result.is_ok());
-        let (remaining, template) = result.unwrap();
+        let (remaining, parts) = result.unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(template.parts.len(), 4);
+        assert_eq!(parts.len(), 4);
 
         // Check the first prompt reference
-        match &template.parts[0] {
+        match &parts[0] {
             PromptTemplatePart::PromptReference(prompt_name) => {
                 assert_eq!("static", prompt_name);
             }
@@ -429,21 +429,21 @@ mod tests {
         }
 
         // Check the literal parts
-        match &template.parts[1] {
+        match &parts[1] {
             PromptTemplatePart::Literal(text) => {
                 assert_eq!(" and ", text);
             }
             _ => panic!("Expected Literal part"),
         }
 
-        match &template.parts[2] {
+        match &parts[2] {
             PromptTemplatePart::VariablePromptReference(prompt_name) => {
                 assert_eq!("dynamic", prompt_name);
             }
             _ => panic!("Expected VariablePromptReference part"),
         }
 
-        match &template.parts[3] {
+        match &parts[3] {
             PromptTemplatePart::Literal(text) => {
                 assert_eq!(" together", text);
             }

@@ -6,7 +6,7 @@ use arboard::Clipboard;
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 use clap_complete::CompleteEnv;
 use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
-use pren_core::prompt::Prompt;
+use pren_core::prompt::{Prompt, PromptMetadata, PromptTemplate};
 use pren_core::storage::PromptStorage;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -19,7 +19,7 @@ fn prompt_names(_current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
     match prompts {
         Ok(prompts) => prompts
             .iter()
-            .map(|prompt| CompletionCandidate::new(&prompt.name))
+            .map(|prompt| CompletionCandidate::new(&prompt.metadata.name))
             .collect(),
         Err(_) => vec![CompletionCandidate::new("")],
     }
@@ -52,7 +52,11 @@ fn prompt_args(current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
         return vec![CompletionCandidate::new("")];
     };
 
-    let prompt_args = prompt.template.arguments();
+    let prompt_args = match PromptTemplate::new(prompt) {
+        Ok(template) => template.arguments(),
+        Err(_) => return vec![CompletionCandidate::new("")],
+    };
+
 
     // Parse already provided arguments to avoid duplicates
     let mut provided_keys = HashSet::new();
@@ -66,7 +70,7 @@ fn prompt_args(current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
     if current_str.is_empty() || !current_str.contains('=') {
         return prompt_args
             .into_iter()
-            .filter(|var| !provided_keys.contains(*var))
+            .filter(|var| !provided_keys.contains(var))
             .map(|var| CompletionCandidate::new(format!("{}=", var)))
             .collect();
     }
@@ -107,10 +111,12 @@ pub enum Commands {
     Add {
         #[arg(short = 'n', long, value_hint = ValueHint::Other)]
         name: String,
-        #[arg(short = 'c', long)]
-        content: String,
+        #[arg(short = 'd', long, value_hint = ValueHint::Other)]
+        description: Option<String>,
         #[arg(short = 't', long, value_delimiter = ',')]
         tags: Vec<String>,
+        #[arg(short = 'c', long)]
+        content: String,
         #[arg(short = 'o', long)]
         overwrite: bool,
     },
@@ -158,8 +164,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     match cli.command {
         Commands::Add {
             name,
-            content,
+            description,
             tags,
+            content,
             overwrite,
         } => {
             match storage.get_prompt(&name) {
@@ -175,14 +182,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Err(_) => {}
             };
             // Create the prompt using the new unified constructor
-            let prompt = Prompt::new(name.to_string(), content.to_string(), tags.clone())?;
+            let prompt = Prompt::new(PromptMetadata::new(name,description,tags), content);
             Ok(storage.save_prompt(&prompt)?)
         }
         Commands::Show { name } => match storage.get_prompt(&name) {
             Ok(prompt) => {
-                println!("Name: {}", prompt.name);
-                println!("Tags: {:?}", prompt.tags);
-                println!("Created: {}", prompt.creation_date.format("%d/%m/%Y %H:%M"));
+                println!("Name: {}", prompt.metadata.name);
+                println!("Tags: {:?}", prompt.metadata.tags);
+                println!("Created: {}", prompt.metadata.created.format("%d/%m/%Y %H:%M"));
                 println!("Content:\n{}", prompt.content);
                 Ok(())
             }
@@ -198,7 +205,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         } => match storage.get_prompt(&name) {
             Ok(prompt) => {
                 let args_map: HashMap<String, String> = kv_args.iter().cloned().collect();
-                let rendered_prompt = prompt.render(&args_map, &storage)?;
+                let rendered_prompt = PromptTemplate::new(prompt)?.render(&args_map, &storage)?;
                 println!("{}", rendered_prompt);
                 if copy {
                     Clipboard::new()?.set_text(rendered_prompt)?;
@@ -216,7 +223,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         } => match storage.get_prompt(&name) {
             Ok(prompt) => {
                 let args_map: HashMap<String, String> = kv_args.iter().cloned().collect();
-                let rendered_prompt = prompt.render(&args_map, &storage)?;
+                let rendered_prompt = PromptTemplate::new(prompt)?.render(&args_map, &storage)?;
                 Clipboard::new()?.set_text(rendered_prompt)?;
                 Ok(())
             }
@@ -230,7 +237,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             match prompts {
                 Ok(p) => {
                     for prompt in p {
-                        println!("Prompt name: {}", prompt.name);
+                        println!("Prompt name: {}", prompt.metadata.name);
                     }
                     Ok(())
                 }

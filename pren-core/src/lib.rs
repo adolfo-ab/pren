@@ -15,7 +15,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use pren_core::prompt::Prompt;
+//! use pren_core::prompt::{Prompt, PromptMetadata};
 //! use pren_core::file_storage::FileStorage;
 //! use pren_core::storage::PromptStorage;
 //! use std::path::PathBuf;
@@ -25,11 +25,8 @@
 //! let temp_dir = TempDir::new().unwrap();
 //!
 //! // Create a prompt
-//! let prompt = Prompt::new(
-//!     "greeting".to_string(),
-//!     "Hello, world!".to_string(),
-//!     vec!["example".to_string()]
-//! ).expect("Failed to create prompt");
+//! let metadata = PromptMetadata::new("greeting".to_string(), None, vec!["example".to_string()]);
+//! let prompt = Prompt::new(metadata, "Hello, world!".to_string());
 //!
 //! // Save it to file storage
 //! let storage = FileStorage {
