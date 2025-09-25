@@ -181,9 +181,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 Err(_) => {}
             };
-            // Create the prompt using the new unified constructor
-            let prompt = Prompt::new(PromptMetadata::new(name,description,tags), content);
-            Ok(storage.save_prompt(&prompt)?)
+            Ok(storage.save_prompt(&Prompt::new(PromptMetadata::new(name,description,tags), content))?)
         }
         Commands::Show { name } => match storage.get_prompt(&name) {
             Ok(prompt) => {
