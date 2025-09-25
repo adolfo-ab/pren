@@ -36,10 +36,15 @@ const MAX_NESTING_DEPTH: usize = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptMetadata {
+    /// The name of the prompt.
     pub name: String,
+    /// A brief description for the prompt.
     pub description: Option<String>,
+    /// Tags used for searching.
     pub tags: Vec<String>,
+    /// The creation date of the prompt.
     pub created: DateTime<Local>,
+    /// Date when the prompt was last modified.
     pub last_modified: DateTime<Local>,
 }
 

@@ -787,9 +787,9 @@ Prompt content here"#;
 
         // Create an invalid file
         let invalid_file_path = temp_dir.path().join("invalid.md");
-        fs::write(invalid_file_path, "invalid toml content [[[").unwrap();
+        fs::write(invalid_file_path, "invalid content [[[").unwrap();
 
-        // Get prompts - should fail due to invalid TOML
+        // Get prompts - should fail due to invalid content
         let result = storage.get_prompts();
         assert!(result.is_err());
 
@@ -903,11 +903,11 @@ Prompt content here"#;
         let prompt = Prompt::new(metadata, "This is a valid prompt".to_string());
         storage.save_prompt(&prompt).unwrap();
 
-        // Create an invalid TOML file
+        // Create an invalid file
         let invalid_file_path = temp_dir.path().join("invalid.md");
-        fs::write(invalid_file_path, "invalid toml content [[[[").unwrap();
+        fs::write(invalid_file_path, "invalid content [[[[").unwrap();
 
-        // Get prompts by tag - should fail due to invalid TOML
+        // Get prompts by tag - should fail due to invalid content
         let result = storage.get_prompts_by_tag(&["valid".to_string()]);
         assert!(result.is_err());
 
