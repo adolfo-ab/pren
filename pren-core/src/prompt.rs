@@ -25,7 +25,6 @@
 
 use crate::parser::parse_template;
 use crate::storage::PromptStorage;
-use chrono::{DateTime, Local};
 use nom::Err as NomErr;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -42,10 +41,6 @@ pub struct PromptMetadata {
     pub description: Option<String>,
     /// Tags used for searching.
     pub tags: Vec<String>,
-    /// The creation date of the prompt.
-    pub created: DateTime<Local>,
-    /// Date when the prompt was last modified.
-    pub last_modified: DateTime<Local>,
 }
 
 #[derive(Debug, Clone)]
@@ -157,8 +152,6 @@ impl PromptMetadata {
             name,
             description,
             tags,
-            created: Local::now(),
-            last_modified: Local::now(),
         }
     }
 }

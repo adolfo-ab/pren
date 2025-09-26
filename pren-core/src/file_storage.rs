@@ -549,8 +549,6 @@ mod tests {
         let invalid_template_content: &str = r#"---
 na_me: "invalid_template"
 tags: ["example", "frontmatter", "rust"]
-created: "2025-09-25T10:30:00Z"
-last_modified: "2025-09-25T10:30:00Z"
 ---
 
 {{Hello world!"#;

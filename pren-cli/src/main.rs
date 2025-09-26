@@ -79,7 +79,6 @@ fn prompt_args(current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
     if let Some((partial_key, _)) = current_str.split_once('=') {
         let partial_key_string = partial_key.to_string();
         if prompt_args.contains(&&partial_key_string) {
-            // Fixed: double reference
             return vec![CompletionCandidate::new(current_str.to_string())];
         }
     }
@@ -187,7 +186,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             Ok(prompt) => {
                 println!("Name: {}", prompt.metadata.name);
                 println!("Tags: {:?}", prompt.metadata.tags);
-                println!("Created: {}", prompt.metadata.created.format("%d/%m/%Y %H:%M"));
                 println!("Content:\n{}", prompt.content);
                 Ok(())
             }
