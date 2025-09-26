@@ -10,6 +10,8 @@ nom = "8.0.0"
 tempfile = "3.22.0"
 walkdir = "2.5.0"
 chrono = { version="0.4.42" , features = ["serde"]}
+rig-core = "0.20.0"
+tokio = { version = "1.47.1", features = ["rt", "rt-multi-thread", "macros"] }
 
 [lib]
 name = "pren_core"

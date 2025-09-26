@@ -10,6 +10,8 @@ use pren_core::prompt::{Prompt, PromptMetadata, PromptTemplate};
 use pren_core::storage::PromptStorage;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use pren_core::file_storage::FileStorageError;
+use pren_core::llm::get_completions_content;
 
 // Custom completer for prompt names
 fn prompt_names(_current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
@@ -144,6 +146,12 @@ pub enum Commands {
         #[arg(short = 'f', long, default_value = "false")]
         force: bool,
     },
+    Generate {
+        #[arg(short = 'g', long, add = ArgValueCompleter::new(prompt_names))]
+        generation_prompt: String,
+        #[arg(short = 'a', long, value_parser = parse_key_val, value_delimiter = ',', add = ArgValueCompleter::new(prompt_args))]
+        args: Vec<(String, String)>,
+    },
     Info,
 }
 
@@ -155,7 +163,8 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
     Ok((s[..pos].to_string(), s[pos + 1..].to_string()))
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     CompleteEnv::with_factory(Cli::command).complete();
     let cli = Cli::parse();
     let storage = get_storage();
@@ -272,6 +281,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Err(e.into())
             }
         },
+        Commands::Generate { generation_prompt, args } => {
+            match storage.get_prompt(&generation_prompt) {
+                Ok(prompt) => {
+                    let args_map: HashMap<String, String> = args.iter().cloned().collect();
+                    let rendered_prompt = PromptTemplate::new(prompt)?.render(&args_map, &storage)?;
+                    let response = get_completions_content("", "http://192.168.0.20:1234/v1", "qwen/qwen3-30b-a3b-2507", &rendered_prompt).await?;
+
+                    println!("{}", response);
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("Error generating prompt using '{}': {}", generation_prompt, e);
+                    Err(e.into())
+                }
+            }
+        },
         Commands::Info => {
             println!("Prompt storage path: {:?}", storage.base_path);
             println!(
@@ -279,6 +304,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 storage.get_prompts().unwrap().len()
             );
             Ok(())
-        }
+        },
+
     }
 }
