@@ -247,7 +247,7 @@ impl PromptStorage for FileStorage {
 }
 
 impl FileStorage {
-    fn ensure_base_directory_exists(&self) -> Result<(), FileStorageError> {
+    pub fn ensure_base_directory_exists(&self) -> Result<(), FileStorageError> {
         if !self.base_path.exists() {
             create_dir_all(&self.base_path)?;
         } else if !self.base_path.is_dir() {

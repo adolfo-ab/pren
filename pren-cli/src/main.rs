@@ -1,7 +1,7 @@
 mod config;
 mod constants;
 
-use crate::config::get_storage;
+use crate::config::{get_storage, PrenCliConfig};
 use arboard::Clipboard;
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 use clap_complete::CompleteEnv;
@@ -10,8 +10,9 @@ use pren_core::prompt::{Prompt, PromptMetadata, PromptTemplate};
 use pren_core::storage::PromptStorage;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use pren_core::file_storage::FileStorageError;
+use confy::ConfyError;
 use pren_core::llm::get_completions_content;
+use crate::constants::PREN_CLI;
 
 // Custom completer for prompt names
 fn prompt_names(_current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
@@ -165,6 +166,8 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let config: PrenCliConfig = confy::load(PREN_CLI, None).unwrap();
+
     CompleteEnv::with_factory(Cli::command).complete();
     let cli = Cli::parse();
     let storage = get_storage();
@@ -286,7 +289,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 Ok(prompt) => {
                     let args_map: HashMap<String, String> = args.iter().cloned().collect();
                     let rendered_prompt = PromptTemplate::new(prompt)?.render(&args_map, &storage)?;
-                    let response = get_completions_content("", "http://192.168.0.20:1234/v1", "qwen/qwen3-30b-a3b-2507", &rendered_prompt).await?;
+                    let response = get_completions_content(&config.model_config.api_key, &config.model_config.base_url, &config.model_config.model_name, &rendered_prompt).await?;
 
                     println!("{}", response);
                     Ok(())

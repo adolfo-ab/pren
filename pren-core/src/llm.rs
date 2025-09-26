@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use rig::client::CompletionClient;
 use rig::completion::{AssistantContent, CompletionError, CompletionModelDyn, Message};
 use rig::providers::openai::{Client};
