@@ -1,9 +1,9 @@
 use crate::constants::PREN_CLI;
-use confy::ConfyError;
 use pren_core::file_storage::FileStorage;
 use serde::{Deserialize, Serialize};
 use std::env::home_dir;
 use std::path::PathBuf;
+use anyhow::{Context, Result};
 
 #[derive(Serialize, Deserialize)]
 pub struct PrenCliConfig {
@@ -42,15 +42,11 @@ impl Default for ModelConfig {
     }
 }
 
-pub fn get_storage() -> FileStorage {
-    let config: Result<PrenCliConfig, ConfyError> = confy::load(PREN_CLI, None);
-    match config {
-        Ok(config) => FileStorage {
-            base_path: PathBuf::from(config.base_path),
-        },
-        _ => {
-            eprintln!("Error: Problem loading config. Exiting...",);
-            std::process::exit(exitcode::CONFIG);
-        }
-    }
+pub fn get_storage() -> Result<FileStorage> {
+    let config = confy::load::<PrenCliConfig>(PREN_CLI, None)
+        .context("Failed to load configuration")?;
+
+    Ok(FileStorage {
+        base_path: PathBuf::from(config.base_path)
+    })
 }
