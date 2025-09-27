@@ -31,9 +31,9 @@
 //! storage.save_prompt(&prompt).expect("Failed to save prompt");
 //! ```
 
-use crate::prompt::{ParseTemplateError, Prompt, PromptMetadata};
 #[cfg(test)]
 use crate::prompt::PromptTemplate;
+use crate::prompt::{ParseTemplateError, Prompt, PromptMetadata};
 use crate::storage::PromptStorage;
 use std::error::Error;
 use std::fs::create_dir_all;
@@ -57,7 +57,7 @@ impl fmt::Display for FileStorageError {
             FileStorageError::IoError(err) => write!(f, "IO error: {}", err),
             FileStorageError::SerializationError(err) => {
                 write!(f, "Serialization error: {:?}", err)
-            },
+            }
             FileStorageError::InvalidBasePath(path) => write!(f, "Invalid base path: {}", path),
             FileStorageError::PromptNotFound(path) => write!(f, "Prompt not found: {}", path),
             FileStorageError::InvalidPromptType(prompt_type) => write!(
@@ -133,7 +133,7 @@ impl PromptStorage for FileStorage {
                 fs::write(file_path, serialized_data)?;
                 Ok(())
             }
-            Err(e) => Err(FileStorageError::SerializationError(e))
+            Err(e) => Err(FileStorageError::SerializationError(e)),
         }
     }
 
@@ -156,7 +156,8 @@ impl PromptStorage for FileStorage {
         }
 
         let content = fs::read_to_string(file_path)?;
-        let (metadata, raw_content): (PromptMetadata, String)  = serde_frontmatter::deserialize(content.as_str())?;
+        let (metadata, raw_content): (PromptMetadata, String) =
+            serde_frontmatter::deserialize(content.as_str())?;
         let content = raw_content.trim_start().to_string();
 
         Ok(Prompt::new(metadata, content))
@@ -177,7 +178,8 @@ impl PromptStorage for FileStorage {
 
             // Read and parse the file
             let content = fs::read_to_string(file_path)?;
-            let (metadata, raw_content): (PromptMetadata, String)  = serde_frontmatter::deserialize(content.as_str())?;
+            let (metadata, raw_content): (PromptMetadata, String) =
+                serde_frontmatter::deserialize(content.as_str())?;
             let content = raw_content.trim_start().to_string();
 
             prompts.push(Prompt::new(metadata, content));
@@ -205,14 +207,16 @@ impl PromptStorage for FileStorage {
 
             // Read and parse the file
             let content = fs::read_to_string(file_path)?;
-            let (metadata, raw_content): (PromptMetadata, String)  = serde_frontmatter::deserialize(content.as_str())?;
+            let (metadata, raw_content): (PromptMetadata, String) =
+                serde_frontmatter::deserialize(content.as_str())?;
             let content = raw_content.trim_start().to_string();
 
             let prompt = Prompt::new(metadata, content);
 
             // Check if any of the prompt's tags match any of the requested tags
             if prompt
-                .metadata.tags
+                .metadata
+                .tags
                 .iter()
                 .any(|prompt_tag| tags.contains(prompt_tag))
             {
@@ -285,7 +289,11 @@ mod tests {
         };
 
         let prompt = Prompt::new(
-            PromptMetadata::new("test_prompt".to_string(), Some("A test prompt".to_string()), vec!["tag1".to_string(), "tag2".to_string()]),
+            PromptMetadata::new(
+                "test_prompt".to_string(),
+                Some("A test prompt".to_string()),
+                vec!["tag1".to_string(), "tag2".to_string()],
+            ),
             "This is a test prompt".to_string(),
         );
 
@@ -294,7 +302,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Check that the file was created
-        let file_path = temp_dir.path().join("test_prompt.md");  // Save method creates .md files
+        let file_path = temp_dir.path().join("test_prompt.md"); // Save method creates .md files
         assert!(file_path.exists());
 
         // Check the content of the file
@@ -311,8 +319,15 @@ mod tests {
             base_path: temp_dir.path().to_path_buf(),
         };
 
-        let metadata = PromptMetadata::new("template_prompt".to_string(), None, vec!["template".to_string()]);
-        let prompt = Prompt::new(metadata, "This is a template prompt with {{variable}}".to_string());
+        let metadata = PromptMetadata::new(
+            "template_prompt".to_string(),
+            None,
+            vec!["template".to_string()],
+        );
+        let prompt = Prompt::new(
+            metadata,
+            "This is a template prompt with {{variable}}".to_string(),
+        );
 
         let result = storage.save_prompt(&prompt);
 
@@ -346,14 +361,16 @@ mod tests {
         // Only when we try to create a PromptTemplate do we get the error
         let loaded_result = storage.get_prompt("invalid_template");
         assert!(loaded_result.is_ok()); // Loading from storage should work
-        
+
         // Creating a template from the loaded prompt will fail when parsing
         let template_result = PromptTemplate::new(loaded_result.unwrap());
         assert!(template_result.is_err());
-        assert!(template_result
-            .unwrap_err()
-            .to_string()
-            .contains("Parse template error"));
+        assert!(
+            template_result
+                .unwrap_err()
+                .to_string()
+                .contains("Parse template error")
+        );
     }
 
     #[test]
@@ -387,13 +404,15 @@ mod tests {
         };
 
         // Save first version
-        let metadata1 = PromptMetadata::new("overwrite_test".to_string(), None, vec!["v1".to_string()]);
+        let metadata1 =
+            PromptMetadata::new("overwrite_test".to_string(), None, vec!["v1".to_string()]);
         let prompt1 = Prompt::new(metadata1, "First version".to_string());
         let result1 = storage.save_prompt(&prompt1);
         assert!(result1.is_ok());
 
         // Save second version (should overwrite)
-        let metadata2 = PromptMetadata::new("overwrite_test".to_string(), None, vec!["v2".to_string()]);
+        let metadata2 =
+            PromptMetadata::new("overwrite_test".to_string(), None, vec!["v2".to_string()]);
         let prompt2 = Prompt::new(metadata2, "Second version".to_string());
         let result2 = storage.save_prompt(&prompt2);
         assert!(result2.is_ok());
@@ -414,8 +433,15 @@ mod tests {
             base_path: temp_dir.path().to_path_buf(),
         };
 
-        let metadata = PromptMetadata::new("complex_template".to_string(), None, vec!["complex".to_string(), "template".to_string()]);
-        let prompt = Prompt::new(metadata, "Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal}}}}".to_string());
+        let metadata = PromptMetadata::new(
+            "complex_template".to_string(),
+            None,
+            vec!["complex".to_string(), "template".to_string()],
+        );
+        let prompt = Prompt::new(
+            metadata,
+            "Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal}}}}".to_string(),
+        );
 
         let result = storage.save_prompt(&prompt);
         assert!(result.is_ok());
@@ -458,8 +484,13 @@ mod tests {
         };
 
         // First save a simple prompt
-        let metadata = PromptMetadata::new("load_test_simple".to_string(), None, vec!["test".to_string(), "simple".to_string()]);
-        let original_prompt = Prompt::new(metadata, "This is a simple prompt for loading".to_string());
+        let metadata = PromptMetadata::new(
+            "load_test_simple".to_string(),
+            None,
+            vec!["test".to_string(), "simple".to_string()],
+        );
+        let original_prompt =
+            Prompt::new(metadata, "This is a simple prompt for loading".to_string());
         storage.save_prompt(&original_prompt).unwrap();
 
         // Now load it back
@@ -483,8 +514,13 @@ mod tests {
         };
 
         // First save a template prompt
-        let metadata = PromptMetadata::new("load_test_template".to_string(), None, vec!["test".to_string(), "template".to_string()]);
-        let original_prompt = Prompt::new(metadata, "Hello {{name}}, this is {{topic}}".to_string());
+        let metadata = PromptMetadata::new(
+            "load_test_template".to_string(),
+            None,
+            vec!["test".to_string(), "template".to_string()],
+        );
+        let original_prompt =
+            Prompt::new(metadata, "Hello {{name}}, this is {{topic}}".to_string());
         storage.save_prompt(&original_prompt).unwrap();
 
         // Now load it back
@@ -643,11 +679,15 @@ Prompt content here"#;
         };
 
         // Save a complex template prompt
-        let metadata = PromptMetadata::new("complex_template_load".to_string(), None, vec![
-            "complex".to_string(),
-            "template".to_string(),
-            "test".to_string(),
-        ]);
+        let metadata = PromptMetadata::new(
+            "complex_template_load".to_string(),
+            None,
+            vec![
+                "complex".to_string(),
+                "template".to_string(),
+                "test".to_string(),
+            ],
+        );
         let complex_content =
             "Hello {{name}}, welcome to {{prompt:greeting}}! {{{{literal}}}} Today is {{date}}.";
         let original_prompt = Prompt::new(metadata, complex_content.to_string());
@@ -679,7 +719,11 @@ Prompt content here"#;
 
         // Save a prompt with special characters
         let special_content = "Content with special chars: ñáéíóú, 中文, emoji 🚀, quotes \"'`";
-        let metadata = PromptMetadata::new("special_chars_test".to_string(), None, vec!["special".to_string(), "unicode".to_string()]);
+        let metadata = PromptMetadata::new(
+            "special_chars_test".to_string(),
+            None,
+            vec!["special".to_string(), "unicode".to_string()],
+        );
         let original_prompt = Prompt::new(metadata, special_content.to_string());
         storage.save_prompt(&original_prompt).unwrap();
 
@@ -699,7 +743,11 @@ Prompt content here"#;
         };
 
         // Save a prompt
-        let metadata = PromptMetadata::new("delete_test".to_string(), None, vec!["test".to_string(), "delete".to_string()]);
+        let metadata = PromptMetadata::new(
+            "delete_test".to_string(),
+            None,
+            vec!["test".to_string(), "delete".to_string()],
+        );
         let prompt = Prompt::new(metadata, "This is a test prompt for deletion".to_string());
         storage.save_prompt(&prompt).unwrap();
 
@@ -727,12 +775,23 @@ Prompt content here"#;
         };
 
         // Save a few different prompts
-        let simple_metadata = PromptMetadata::new("simple_test".to_string(), None, vec!["simple".to_string(), "test".to_string()]);
+        let simple_metadata = PromptMetadata::new(
+            "simple_test".to_string(),
+            None,
+            vec!["simple".to_string(), "test".to_string()],
+        );
         let simple_prompt = Prompt::new(simple_metadata, "This is a simple prompt".to_string());
         storage.save_prompt(&simple_prompt).unwrap();
 
-        let template_metadata = PromptMetadata::new("template_test".to_string(), None, vec!["template".to_string(), "test".to_string()]);
-        let template_prompt = Prompt::new(template_metadata, "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string());
+        let template_metadata = PromptMetadata::new(
+            "template_test".to_string(),
+            None,
+            vec!["template".to_string(), "test".to_string()],
+        );
+        let template_prompt = Prompt::new(
+            template_metadata,
+            "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
+        );
         storage.save_prompt(&template_prompt).unwrap();
 
         // Get all prompts
@@ -743,14 +802,20 @@ Prompt content here"#;
         assert_eq!(prompts.len(), 2);
 
         // Find and verify each prompt
-        let simple_found = prompts.iter().find(|p| p.metadata.name == "simple_test").unwrap();
+        let simple_found = prompts
+            .iter()
+            .find(|p| p.metadata.name == "simple_test")
+            .unwrap();
         assert_eq!(simple_found.content, "This is a simple prompt");
         assert_eq!(
             simple_found.metadata.tags,
             vec!["simple".to_string(), "test".to_string()]
         );
 
-        let template_found = prompts.iter().find(|p| p.metadata.name == "template_test").unwrap();
+        let template_found = prompts
+            .iter()
+            .find(|p| p.metadata.name == "template_test")
+            .unwrap();
         assert_eq!(
             template_found.content,
             "Hello {{name}}, welcome to {{prompt:greeting}}!"
@@ -805,15 +870,30 @@ Prompt content here"#;
         };
 
         // Save a few different prompts with different tags
-        let simple_metadata = PromptMetadata::new("simple_test".to_string(), None, vec!["simple".to_string(), "test".to_string()]);
+        let simple_metadata = PromptMetadata::new(
+            "simple_test".to_string(),
+            None,
+            vec!["simple".to_string(), "test".to_string()],
+        );
         let simple_prompt = Prompt::new(simple_metadata, "This is a simple prompt".to_string());
         storage.save_prompt(&simple_prompt).unwrap();
 
-        let template_metadata = PromptMetadata::new("template_test".to_string(), None, vec!["template".to_string(), "test".to_string()]);
-        let template_prompt = Prompt::new(template_metadata, "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string());
+        let template_metadata = PromptMetadata::new(
+            "template_test".to_string(),
+            None,
+            vec!["template".to_string(), "test".to_string()],
+        );
+        let template_prompt = Prompt::new(
+            template_metadata,
+            "Hello {{name}}, welcome to {{prompt:greeting}}!".to_string(),
+        );
         storage.save_prompt(&template_prompt).unwrap();
 
-        let another_metadata = PromptMetadata::new("another_test".to_string(), None, vec!["another".to_string()]);
+        let another_metadata = PromptMetadata::new(
+            "another_test".to_string(),
+            None,
+            vec!["another".to_string()],
+        );
         let another_prompt = Prompt::new(another_metadata, "This is another prompt".to_string());
         storage.save_prompt(&another_prompt).unwrap();
 
@@ -825,14 +905,20 @@ Prompt content here"#;
         assert_eq!(prompts.len(), 2);
 
         // Find and verify each prompt
-        let simple_found = prompts.iter().find(|p| p.metadata.name == "simple_test").unwrap();
+        let simple_found = prompts
+            .iter()
+            .find(|p| p.metadata.name == "simple_test")
+            .unwrap();
         assert_eq!(simple_found.content, "This is a simple prompt");
         assert_eq!(
             simple_found.metadata.tags,
             vec!["simple".to_string(), "test".to_string()]
         );
 
-        let template_found = prompts.iter().find(|p| p.metadata.name == "template_test").unwrap();
+        let template_found = prompts
+            .iter()
+            .find(|p| p.metadata.name == "template_test")
+            .unwrap();
         assert_eq!(
             template_found.content,
             "Hello {{name}}, welcome to {{prompt:greeting}}!"
@@ -868,8 +954,14 @@ Prompt content here"#;
         let prompts = result.unwrap();
         assert_eq!(prompts.len(), 2);
 
-        let simple_found = prompts.iter().find(|p| p.metadata.name == "simple_test").unwrap();
-        let another_found = prompts.iter().find(|p| p.metadata.name == "another_test").unwrap();
+        let simple_found = prompts
+            .iter()
+            .find(|p| p.metadata.name == "simple_test")
+            .unwrap();
+        let another_found = prompts
+            .iter()
+            .find(|p| p.metadata.name == "another_test")
+            .unwrap();
         assert_eq!(simple_found.metadata.name, "simple_test");
         assert_eq!(another_found.metadata.name, "another_test");
     }
@@ -897,7 +989,8 @@ Prompt content here"#;
         };
 
         // Create a valid prompt with a tag
-        let metadata = PromptMetadata::new("valid_prompt".to_string(), None, vec!["valid".to_string()]);
+        let metadata =
+            PromptMetadata::new("valid_prompt".to_string(), None, vec!["valid".to_string()]);
         let prompt = Prompt::new(metadata, "This is a valid prompt".to_string());
         storage.save_prompt(&prompt).unwrap();
 

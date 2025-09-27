@@ -1,9 +1,9 @@
 use crate::constants::PREN_CLI;
+use anyhow::{Context, Result};
 use pren_core::file_storage::FileStorage;
 use serde::{Deserialize, Serialize};
 use std::env::home_dir;
 use std::path::PathBuf;
-use anyhow::{Context, Result};
 
 #[derive(Serialize, Deserialize)]
 pub struct PrenCliConfig {
@@ -17,7 +17,6 @@ pub struct ModelConfig {
     pub api_key: String,
     pub base_url: String,
 }
-
 
 impl Default for PrenCliConfig {
     fn default() -> Self {
@@ -43,10 +42,10 @@ impl Default for ModelConfig {
 }
 
 pub fn get_storage() -> Result<FileStorage> {
-    let config = confy::load::<PrenCliConfig>(PREN_CLI, None)
-        .context("Failed to load configuration")?;
+    let config =
+        confy::load::<PrenCliConfig>(PREN_CLI, None).context("Failed to load configuration")?;
 
     Ok(FileStorage {
-        base_path: PathBuf::from(config.base_path)
+        base_path: PathBuf::from(config.base_path),
     })
 }

@@ -17,7 +17,7 @@
 //! assert!(result.is_ok());
 //! ```
 
-use crate::prompt::{PromptTemplatePart};
+use crate::prompt::PromptTemplatePart;
 use nom::IResult;
 use nom::Parser;
 use nom::branch::alt;

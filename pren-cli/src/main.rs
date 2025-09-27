@@ -1,23 +1,22 @@
 mod config;
 mod constants;
 
-use crate::config::{get_storage, PrenCliConfig};
+use crate::config::{PrenCliConfig, get_storage};
+use crate::constants::PREN_CLI;
+use anyhow::{Context, Result, bail};
 use arboard::Clipboard;
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 use clap_complete::CompleteEnv;
 use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
+use pren_core::llm::get_completions_content;
 use pren_core::prompt::{Prompt, PromptMetadata, PromptTemplate};
 use pren_core::storage::PromptStorage;
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
-use pren_core::llm::get_completions_content;
-use crate::constants::PREN_CLI;
-use anyhow::{Result, Context, bail};
 
 // Custom completer for prompt names
 fn prompt_names(_current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
     let Ok(storage) = get_storage() else {
-        return vec![CompletionCandidate::new("")]
+        return vec![CompletionCandidate::new("")];
     };
 
     let prompts = storage.get_prompts();
@@ -63,7 +62,6 @@ fn prompt_args(current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
         Ok(template) => template.arguments(),
         Err(_) => return vec![CompletionCandidate::new("")],
     };
-
 
     // Parse already provided arguments to avoid duplicates
     let mut provided_keys = HashSet::new();
@@ -170,7 +168,8 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config: PrenCliConfig = confy::load(PREN_CLI, None).with_context(|| format!("Unexpected error while loading config for {}", PREN_CLI))?;
+    let config: PrenCliConfig = confy::load(PREN_CLI, None)
+        .with_context(|| format!("Unexpected error while loading config for {}", PREN_CLI))?;
 
     CompleteEnv::with_factory(Cli::command).complete();
     let cli = Cli::parse();
@@ -186,10 +185,16 @@ async fn main() -> Result<()> {
         } => {
             if let Ok(_p) = storage.get_prompt(&name) {
                 if !overwrite {
-                    bail!("Prompt '{}' already exists. Use --overwrite to replace it.", name);
+                    bail!(
+                        "Prompt '{}' already exists. Use --overwrite to replace it.",
+                        name
+                    );
                 }
             }
-            Ok(storage.save_prompt(&Prompt::new(PromptMetadata::new(name, description, tags), content))?)
+            Ok(storage.save_prompt(&Prompt::new(
+                PromptMetadata::new(name, description, tags),
+                content,
+            ))?)
         }
         Commands::Show { name } => {
             let prompt = storage.get_prompt(&name)?;
@@ -198,12 +203,8 @@ async fn main() -> Result<()> {
             println!("Tags: {:?}", prompt.metadata.tags);
             println!("Content:\n{}", prompt.content);
             Ok(())
-        },
-        Commands::Render {
-            name,
-            args,
-            copy,
-        } => {
+        }
+        Commands::Render { name, args, copy } => {
             let prompt = storage.get_prompt(&name)?;
 
             let args_map: HashMap<String, String> = args.iter().cloned().collect();
@@ -215,28 +216,25 @@ async fn main() -> Result<()> {
                 Clipboard::new()?.set_text(rendered_prompt)?;
             }
             Ok(())
-
-
-        },
-        Commands::Get {
-            name,
-            args,
-        } => {
+        }
+        Commands::Get { name, args } => {
             let prompt = storage.get_prompt(&name)?;
             let args_map: HashMap<String, String> = args.iter().cloned().collect();
             let rendered_prompt = PromptTemplate::new(prompt)?.render(&args_map, &storage)?;
             Clipboard::new()?.set_text(rendered_prompt)?;
             Ok(())
-        },
+        }
         Commands::List => {
             let prompts = storage.get_prompts()?;
             for prompt in prompts {
                 println!("Prompt name: {}", prompt.metadata.name);
             }
             Ok(())
-        },
+        }
         Commands::Delete { name, force } => {
-            let _prompt = storage.get_prompt(&name).context(format!("Couldn't delete prompt: '{}'", name))?;
+            let _prompt = storage
+                .get_prompt(&name)
+                .context(format!("Couldn't delete prompt: '{}'", name))?;
             if !force {
                 println!("Are you sure you want to delete prompt '{}'? [y/N]", name);
                 let mut input = String::new();
@@ -250,26 +248,29 @@ async fn main() -> Result<()> {
             storage.delete_prompt(&name)?;
             println!("Prompt '{}' deleted successfully.", name);
             Ok(())
-
-        },
-        Commands::Generate { generation_prompt, args } => {
+        }
+        Commands::Generate {
+            generation_prompt,
+            args,
+        } => {
             let prompt = storage.get_prompt(&generation_prompt)?;
             let args_map: HashMap<String, String> = args.iter().cloned().collect();
             let rendered_prompt = PromptTemplate::new(prompt)?.render(&args_map, &storage)?;
-            let response = get_completions_content(&config.model_config.api_key, &config.model_config.base_url, &config.model_config.model_name, &rendered_prompt).await?;
+            let response = get_completions_content(
+                &config.model_config.api_key,
+                &config.model_config.base_url,
+                &config.model_config.model_name,
+                &rendered_prompt,
+            )
+            .await?;
 
             println!("{}", response);
             Ok(())
-
-        },
+        }
         Commands::Info => {
             println!("Prompt storage path: {:?}", storage.base_path);
-            println!(
-                "Total number of prompts: {}",
-                storage.get_prompts()?.len()
-            );
+            println!("Total number of prompts: {}", storage.get_prompts()?.len());
             Ok(())
-        },
-
+        }
     }
 }

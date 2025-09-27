@@ -35,5 +35,4 @@ pub trait PromptStorage {
 
     /// Deletes a prompt by name.
     fn delete_prompt(&self, name: &str) -> Result<(), Self::Error>;
-
 }
