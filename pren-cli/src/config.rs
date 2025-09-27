@@ -23,10 +23,10 @@ impl Default for PrenCliConfig {
     fn default() -> Self {
         let base_path = home_dir()
             .map(|p| p.join("pren").join("prompts"))
-            .unwrap_or_else(|| PathBuf::from("pren").join("prompts"));
+            .unwrap_or_else(|| PathBuf::from("pren/prompts"));
 
         Self {
-            base_path: String::from(base_path.to_str().unwrap()),
+            base_path: base_path.display().to_string(),
             model_config: ModelConfig::default(),
         }
     }

@@ -166,7 +166,7 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let config: PrenCliConfig = confy::load(PREN_CLI, None).unwrap();
+    let config: PrenCliConfig = confy::load(PREN_CLI, None)?;
 
     CompleteEnv::with_factory(Cli::command).complete();
     let cli = Cli::parse();
@@ -304,7 +304,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             println!("Prompt storage path: {:?}", storage.base_path);
             println!(
                 "Total number of prompts: {}",
-                storage.get_prompts().unwrap().len()
+                storage.get_prompts()?.len()
             );
             Ok(())
         },
