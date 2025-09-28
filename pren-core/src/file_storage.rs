@@ -35,68 +35,28 @@
 use crate::prompt::PromptTemplate;
 use crate::prompt::{ParseTemplateError, Prompt, PromptMetadata};
 use crate::storage::PromptStorage;
-use std::error::Error;
 use std::fs::create_dir_all;
 use std::path::PathBuf;
-use std::{fmt, fs, io};
+use std::{fs, io};
 use walkdir::WalkDir;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum FileStorageError {
-    IoError(io::Error),
-    SerializationError(serde_frontmatter::SerdeFMError),
+    #[error("i/o Error")]
+    IoError(#[from] io::Error),
+    #[error("serialization Error: {0}")]
+    SerializationError(String),
+    #[error("deserialization Error: {0}")]
+    DeserializationError(String),
+    #[error("invalid base path: '{0}'")]
     InvalidBasePath(String),
+    #[error("prompt '{0}' couldn't be found")]
     PromptNotFound(String),
-    InvalidPromptType(String),
-    ParseTemplateError(ParseTemplateError),
+    #[error("error found while parsing template")]
+    ParseTemplateError(#[from] ParseTemplateError),
 }
 
-impl fmt::Display for FileStorageError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            FileStorageError::IoError(err) => write!(f, "IO error: {}", err),
-            FileStorageError::SerializationError(err) => {
-                write!(f, "Serialization error: {:?}", err)
-            }
-            FileStorageError::InvalidBasePath(path) => write!(f, "Invalid base path: {}", path),
-            FileStorageError::PromptNotFound(path) => write!(f, "Prompt not found: {}", path),
-            FileStorageError::InvalidPromptType(prompt_type) => write!(
-                f,
-                "Invalid prompt type, must be 'simple' or 'template': {}",
-                prompt_type
-            ),
-            FileStorageError::ParseTemplateError(err) => write!(f, "{}", err),
-        }
-    }
-}
-
-impl Error for FileStorageError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            FileStorageError::IoError(err) => Some(err),
-            FileStorageError::ParseTemplateError(err) => Some(err),
-            _ => None,
-        }
-    }
-}
-
-impl From<io::Error> for FileStorageError {
-    fn from(err: io::Error) -> Self {
-        FileStorageError::IoError(err)
-    }
-}
-
-impl From<serde_frontmatter::SerdeFMError> for FileStorageError {
-    fn from(err: serde_frontmatter::SerdeFMError) -> Self {
-        FileStorageError::SerializationError(err)
-    }
-}
-
-impl From<ParseTemplateError> for FileStorageError {
-    fn from(err: ParseTemplateError) -> Self {
-        FileStorageError::ParseTemplateError(err)
-    }
-}
 
 /// A local file storage for Prompts.
 ///
@@ -105,6 +65,15 @@ pub struct FileStorage {
     /// The base directory where prompt files are stored.
     pub base_path: PathBuf,
 }
+
+/// Helper function to deserialize content from a file
+fn deserialize_content(content: &str) -> Result<(PromptMetadata, String), FileStorageError> {
+    match serde_frontmatter::deserialize(content) {
+        Ok(result) => Ok(result),
+        Err(e) => Err(FileStorageError::DeserializationError(format!("{:?}", e))),
+    }
+}
+
 
 impl PromptStorage for FileStorage {
     type Error = FileStorageError;
@@ -133,7 +102,7 @@ impl PromptStorage for FileStorage {
                 fs::write(file_path, serialized_data)?;
                 Ok(())
             }
-            Err(e) => Err(FileStorageError::SerializationError(e)),
+            Err(e) => Err(FileStorageError::SerializationError(format!("{:?}", e))),
         }
     }
 
@@ -156,8 +125,7 @@ impl PromptStorage for FileStorage {
         }
 
         let content = fs::read_to_string(file_path)?;
-        let (metadata, raw_content): (PromptMetadata, String) =
-            serde_frontmatter::deserialize(content.as_str())?;
+        let (metadata, raw_content) = deserialize_content(content.as_str())?;
         let content = raw_content.trim_start().to_string();
 
         Ok(Prompt::new(metadata, content))
@@ -178,8 +146,7 @@ impl PromptStorage for FileStorage {
 
             // Read and parse the file
             let content = fs::read_to_string(file_path)?;
-            let (metadata, raw_content): (PromptMetadata, String) =
-                serde_frontmatter::deserialize(content.as_str())?;
+            let (metadata, raw_content) = deserialize_content(content.as_str())?;
             let content = raw_content.trim_start().to_string();
 
             prompts.push(Prompt::new(metadata, content));
@@ -207,8 +174,7 @@ impl PromptStorage for FileStorage {
 
             // Read and parse the file
             let content = fs::read_to_string(file_path)?;
-            let (metadata, raw_content): (PromptMetadata, String) =
-                serde_frontmatter::deserialize(content.as_str())?;
+            let (metadata, raw_content) = deserialize_content(content.as_str())?;
             let content = raw_content.trim_start().to_string();
 
             let prompt = Prompt::new(metadata, content);
@@ -272,7 +238,8 @@ impl FileStorage {
             .collect();
         Ok(entries)
     }
-}
+    
+    }
 
 #[cfg(test)]
 mod tests {
@@ -369,7 +336,7 @@ mod tests {
             template_result
                 .unwrap_err()
                 .to_string()
-                .contains("Parse template error")
+                .contains("Error found while parsing template")
         );
     }
 
@@ -569,8 +536,8 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            FileStorageError::SerializationError(_) => {}
-            _ => panic!("Expected SerializationError"),
+            FileStorageError::DeserializationError(_) => {}
+            _ => panic!("Expected DeserializationError"),
         }
     }
 
@@ -644,8 +611,8 @@ Prompt content here"#;
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            FileStorageError::SerializationError(_) => {}
-            _ => panic!("Expected SerializationError for missing fields"),
+            FileStorageError::DeserializationError(_) => {}
+            _ => panic!("Expected DeserializationError for missing fields"),
         }
     }
 
@@ -857,8 +824,8 @@ Prompt content here"#;
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            FileStorageError::SerializationError(_) => {}
-            _ => panic!("Expected SerializationError"),
+            FileStorageError::DeserializationError(_) => {}
+            _ => panic!("Expected DeserializationError"),
         }
     }
 
@@ -1003,8 +970,8 @@ Prompt content here"#;
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            FileStorageError::SerializationError(_) => {}
-            _ => panic!("Expected SerializationError"),
+            FileStorageError::DeserializationError(_) => {}
+            _ => panic!("Expected DeserializationError"),
         }
     }
 }

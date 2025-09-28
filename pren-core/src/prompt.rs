@@ -28,10 +28,12 @@ use crate::storage::PromptStorage;
 use nom::Err as NomErr;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
+
+use thiserror::Error;
+
 
 /// Maximum allowed nesting depth for prompt templates
-const MAX_NESTING_DEPTH: usize = 3;
+const MAX_NESTING_DEPTH: usize = 3; // TODO: Make this a variable
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptMetadata {
@@ -70,31 +72,17 @@ pub struct PromptTemplate {
     pub parts: Vec<PromptTemplatePart>,
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
+#[error("Error found while parsing template: {message}")]
 pub struct ParseTemplateError {
     pub message: String,
 }
 
-impl std::fmt::Display for ParseTemplateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Parse template error: {}", self.message)
-    }
-}
-
-impl Error for ParseTemplateError {}
-
-#[derive(Debug)]
+#[derive(Error, Debug)]
+#[error("Error found while rendering template: {message}")]
 pub struct RenderTemplateError {
     pub message: String,
 }
-
-impl std::fmt::Display for RenderTemplateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Render template error: {}", self.message)
-    }
-}
-
-impl Error for RenderTemplateError {}
 
 /// A context for validating prompt templates during rendering, tracking visited prompts and current depth
 #[derive(Debug, Clone)]
@@ -446,6 +434,8 @@ mod tests {
             self.prompts.insert(prompt.metadata.name.clone(), prompt);
         }
     }
+
+    use std::error::Error;
 
     #[derive(Debug)]
     pub struct MockStorageError {

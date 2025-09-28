@@ -1441,6 +1441,7 @@ dependencies = [
  "serde",
  "serde-frontmatter",
  "tempfile",
+ "thiserror 2.0.16",
  "tokio",
  "walkdir",
 ]
