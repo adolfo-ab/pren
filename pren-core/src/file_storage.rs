@@ -117,18 +117,28 @@ impl PromptStorage for FileStorage {
     /// * `Ok(Prompt)` - If the prompt is found.
     /// * `FileStorageError` - If there was an error reading or parsing the prompt, or if the prompt doesn't exist.
     fn get_prompt(&self, name: &str) -> Result<Prompt, FileStorageError> {
-        let file_path = self.base_path.join(format!("{}.md", name));
-        if !file_path.exists() {
-            return Err(FileStorageError::PromptNotFound(
-                file_path.display().to_string(),
-            ));
+        // Look for the prompt file in all subdirectories
+        for entry in self.get_md_files()? {
+            let file_path = entry.path();
+            let file_stem = file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| FileStorageError::PromptNotFound(file_path.display().to_string()))?;
+
+            if file_stem == name {
+                let content = fs::read_to_string(file_path)?;
+                let (metadata, raw_content) = deserialize_content(content.as_str())?;
+                let content = raw_content.trim_start().to_string();
+
+                return Ok(Prompt::new(metadata, content));
+            }
         }
 
-        let content = fs::read_to_string(file_path)?;
-        let (metadata, raw_content) = deserialize_content(content.as_str())?;
-        let content = raw_content.trim_start().to_string();
-
-        Ok(Prompt::new(metadata, content))
+        // If we don't find the prompt, return an error
+        let file_path = self.base_path.join(format!("{}.md", name));
+        Err(FileStorageError::PromptNotFound(
+            file_path.display().to_string(),
+        ))
     }
 
     /// Gets all prompts stored in the base directory.
@@ -204,15 +214,25 @@ impl PromptStorage for FileStorage {
     /// * `Ok(())` - If the prompt was successfully deleted or didn't exist.
     /// * `FileStorageError` - If there was an error deleting the file or the file didn't exist.
     fn delete_prompt(&self, name: &str) -> Result<(), FileStorageError> {
-        let file_path = self.base_path.join(format!("{}.md", name));
-        if !file_path.exists() {
-            return Err(FileStorageError::PromptNotFound(
-                file_path.display().to_string(),
-            ));
+        // Look for the prompt file in all subdirectories
+        for entry in self.get_md_files()? {
+            let file_path = entry.path();
+            let file_stem = file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| FileStorageError::PromptNotFound(file_path.display().to_string()))?;
+
+            if file_stem == name {
+                fs::remove_file(file_path)?;
+                return Ok(());
+            }
         }
 
-        fs::remove_file(file_path)?;
-        Ok(())
+        // If we don't find the prompt, return an error
+        let file_path = self.base_path.join(format!("{}.md", name));
+        Err(FileStorageError::PromptNotFound(
+            file_path.display().to_string(),
+        ))
     }
 }
 
